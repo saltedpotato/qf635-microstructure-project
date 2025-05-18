@@ -36,6 +36,7 @@ class BinanceSymbolManager:
         """String representation of the tracked symbols."""
         return f"Tracked Symbols: {sorted(self.symbols)}"
 
+# Test
 # if __name__ == "__main__":
 #     manager = BinanceSymbolManager()
 #
