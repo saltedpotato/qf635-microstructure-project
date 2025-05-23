@@ -1,5 +1,4 @@
-from get_clean_data.import_files import *
-from get_clean_data.BinanceSymbolManager import *
+from Utils.BinanceSymbolManager import *
 
 # Tier represents a price level
 class Tier:

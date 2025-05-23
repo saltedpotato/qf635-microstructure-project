@@ -1,5 +1,4 @@
-from get_clean_data.import_files import *
-from get_clean_data.BinanceSymbolManager import *
+from Utils.BinanceSymbolManager import *
 
 class BinancePriceFetcher:
     def __init__(self, symbol_manager: BinanceSymbolManager):
@@ -181,6 +180,32 @@ class BinancePriceFetcher:
             return pd.concat(all_data).drop_duplicates().reset_index(drop=True)
         return pd.DataFrame()
 
+    def get_grp_historical_ohlcv(self, interval: str, start_date: str, end_date: str = None, col: str = "close") -> pd.DataFrame:
+        """
+        Get complete historical OHLCV data between dates
+
+        Args:
+            interval: Kline interval
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD, defaults to now)
+
+        Returns:
+            Concatenated DataFrame with all historical data
+        """
+        symbols = self.symbol_manager.get_symbols()
+        compiled_symbol_df = pd.DataFrame()
+        for s in symbols:
+            symbol_df = self.get_historical_ohlcv(s, interval, start_date, end_date)
+            symbol_df = symbol_df[["timestamp", col]].copy()
+            symbol_df = symbol_df.rename(columns={col:s})
+            if len(compiled_symbol_df) == 0:
+                compiled_symbol_df = symbol_df
+            else:
+                compiled_symbol_df = compiled_symbol_df.merge(symbol_df, on="timestamp", how="left")
+        return compiled_symbol_df
+
+
+
 # Test
 if __name__ == "__main__":
     # Initialize managers
@@ -215,4 +240,11 @@ if __name__ == "__main__":
         end_date="2023-12-31"
     )
 
+    btc_portfolio = price_fetcher.get_grp_historical_ohlcv(
+        interval="1d",
+        start_date="2023-01-01",
+        end_date="2023-12-31"
+    )
+
     print(btc_daily.head())
+    print(btc_portfolio.head())

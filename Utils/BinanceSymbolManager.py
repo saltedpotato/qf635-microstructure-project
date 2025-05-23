@@ -1,15 +1,35 @@
+from Utils.import_files import *
+
 class BinanceSymbolManager:
     def __init__(self):
         """Initialize an empty set to store symbols (avoids duplicates)."""
         self.symbols = set()
+
+    def _test_get_price(self, symbol: str):
+        """Fetch current price for a single symbol."""
+        symbol = symbol.upper().strip()
+
+        response = requests.get(
+            f"{BASE_URL}/ticker/price",
+            params={"symbol": symbol}
+        )
+
+        if response.status_code == 200:
+            return True
+        else:
+            return False
 
     def add_symbol(self, symbol: str) -> str:
         """Add a symbol to the tracker (e.g., 'BTCUSDT')."""
         symbol = symbol.upper().strip()  # Normalize input
         if symbol in self.symbols:
             return f"'{symbol}' already exists in the list."
-        self.symbols.add(symbol)
-        return f"'{symbol}' added successfully."
+
+        if self._test_get_price(symbol):
+            self.symbols.add(symbol)
+            return f"'{symbol}' added successfully."
+        else:
+            return f"'{symbol}' does not exist in Binance."
 
     def remove_symbol(self, symbol: str) -> str:
         """Remove a symbol from the tracker."""
