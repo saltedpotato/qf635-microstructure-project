@@ -152,6 +152,7 @@ if __name__ == "__main__":
     # Get individual metrics
     print("Annualized Returns:\n", metrics.annualized_return())
     print("\nSharpe Ratios:\n", metrics.sharpe_ratio())
+    print("\nMax Drawdown:\n", metrics.max_drawdown())
 
     # Get full summary
     print("\nPerformance Summary:")
