@@ -53,6 +53,29 @@ class PortfolioMetrics:
         drawdowns = (wealth_index - previous_peaks) / previous_peaks
         return drawdowns.min()
 
+    def max_drawdown_duration(self):
+        """
+        Calculate maximum drawdown duration.
+        """
+        wealth_index = (1 + self.returns).cumprod()
+        previous_peaks = wealth_index.cummax()
+        drawdowns = (wealth_index - previous_peaks) / previous_peaks
+
+        durations = []
+        current_start = None
+
+        for i, val in enumerate(drawdowns.values.flatten()):
+            if val == 0:
+                if current_start is not None:
+                    durations.append(i - current_start)
+                    current_start = None
+            else:
+                if current_start is None:
+                    current_start = i
+        if current_start is not None:
+            durations.append(len(drawdowns) - current_start)
+        return max(durations, default=0)
+
     def calmar_ratio(self, periods_per_year=252):
         """
         Calculate Calmar ratio (return vs max drawdown).
@@ -103,10 +126,11 @@ class PortfolioMetrics:
         """
         Generate comprehensive performance summary.
         """
-        metrics = {
+        all_metrics = {
             'Annualized Return': self.annualized_return(periods_per_year),
             'Annualized Volatility': self.annualized_volatility(periods_per_year),
             'Sharpe Ratio': self.sharpe_ratio(risk_free_rate, periods_per_year),
+            'Max Drawdown Duration': self.max_drawdown_duration(),
             'Max Drawdown': self.max_drawdown(),
             'Calmar Ratio': self.calmar_ratio(periods_per_year),
             'Skewness': self.skewness(),
@@ -116,7 +140,7 @@ class PortfolioMetrics:
             'Tail Ratio': self.tail_ratio(5),
             'Omega Ratio': self.omega_ratio(0.0)
         }
-        summary_df = pd.DataFrame(metrics, index=self.returns.columns)
+        summary_df = pd.DataFrame(all_metrics, index=self.returns.columns)
 
         if filter:
             return summary_df[filter]
@@ -151,14 +175,15 @@ if __name__ == "__main__":
     returns["Strat2"] = returns
 
     # Initialize metrics calculator
-    metrics = PortfolioMetrics(returns)
+    port_metrics = PortfolioMetrics(returns)
 
     # Get individual metrics
-    print("Annualized Returns:\n", metrics.annualized_return())
-    print("\nSharpe Ratios:\n", metrics.sharpe_ratio())
-    print("\nMax Drawdown:\n", metrics.max_drawdown())
+    print("Annualized Returns:\n", port_metrics.annualized_return())
+    print("\nSharpe Ratios:\n", port_metrics.sharpe_ratio())
+    print("\nMax Drawdown:\n", port_metrics.max_drawdown())
+    print("\nMax Drawdown Duration:\n", port_metrics.max_drawdown_duration())
 
     # Get full summary
     print("\nPerformance Summary:")
-    summary = metrics.summary(risk_free_rate=0.02)  # 2% risk-free rate
+    summary = port_metrics.summary(risk_free_rate=0.02)  # 2% risk-free rate
     print(summary)
