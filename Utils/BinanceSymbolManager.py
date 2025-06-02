@@ -5,19 +5,9 @@ class BinanceSymbolManager:
         """Initialize an empty set to store symbols (avoids duplicates)."""
         self.symbols = set()
 
-    def _test_get_price(self, symbol: str):
-        """Fetch current price for a single symbol."""
-        symbol = symbol.upper().strip()
-
-        response = requests.get(
-            f"{BASE_URL}/ticker/price",
-            params={"symbol": symbol}
-        )
-
-        if response.status_code == 200:
-            return True
-        else:
-            return False
+        response = requests.get(f"{BASE_URL}/ticker/price")
+        data = response.json()
+        self.all_tickers = [i["symbol"] for i in data]
 
     def add_symbol(self, symbol: str) -> str:
         """Add a symbol to the tracker (e.g., 'BTCUSDT')."""
@@ -25,7 +15,7 @@ class BinanceSymbolManager:
         if symbol in self.symbols:
             return f"'{symbol}' already exists in the list."
 
-        if self._test_get_price(symbol):
+        if symbol in self.all_tickers:
             self.symbols.add(symbol)
             return f"'{symbol}' added successfully."
         else:
@@ -57,25 +47,25 @@ class BinanceSymbolManager:
         return f"Tracked Symbols: {sorted(self.symbols)}"
 
 # Test
-# if __name__ == "__main__":
-#     manager = BinanceSymbolManager()
-#
-#     # Add symbols
-#     print(manager.add_symbol("BTCUSDT"))  # 'BTCUSDT' added successfully.
-#     print(manager.add_symbol("ETHUSDT"))  # 'ETHUSDT' added successfully.
-#     print(manager.add_symbol("BTCUSDT"))  # 'BTCUSDT' already exists.
-#
-#     # Remove a symbol
-#     print(manager.remove_symbol("ETHUSDT"))  # 'ETHUSDT' removed successfully.
-#     print(manager.remove_symbol("DOGEUSDT"))  # 'DOGEUSDT' not found.
-#
-#     # Get all symbols
-#     print(manager.get_symbols())  # ['BTCUSDT']
-#
-#     # Check if a symbol exists
-#     print(manager.has_symbol("btcusdt"))  # True (case-insensitive)
-#     print(manager.has_symbol("XRPUSDT"))  # False
-#
-#     # Clear all symbols
-#     print(manager.clear_symbols())  # All symbols cleared.
-#     print(manager.get_symbols())  # []
+if __name__ == "__main__":
+    manager = BinanceSymbolManager()
+
+    # Add symbols
+    print(manager.add_symbol("BTCUSDT"))  # 'BTCUSDT' added successfully.
+    print(manager.add_symbol("ETHUSDT"))  # 'ETHUSDT' added successfully.
+    print(manager.add_symbol("BTCUSDT"))  # 'BTCUSDT' already exists.
+
+    # Remove a symbol
+    print(manager.remove_symbol("ETHUSDT"))  # 'ETHUSDT' removed successfully.
+    print(manager.remove_symbol("DOGEUSDT"))  # 'DOGEUSDT' not found.
+
+    # Get all symbols
+    print(manager.get_symbols())  # ['BTCUSDT']
+
+    # Check if a symbol exists
+    print(manager.has_symbol("btcusdt"))  # True (case-insensitive)
+    print(manager.has_symbol("XRPUSDT"))  # False
+
+    # Clear all symbols
+    print(manager.clear_symbols())  # All symbols cleared.
+    print(manager.get_symbols())  # []

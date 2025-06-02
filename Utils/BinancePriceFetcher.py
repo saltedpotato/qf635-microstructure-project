@@ -1,9 +1,9 @@
 from Utils.BinanceSymbolManager import *
 
 class BinancePriceFetcher:
-    def __init__(self, symbol_manager: BinanceSymbolManager):
+    def __init__(self, symbols: list):
         """Initialize with a symbol manager instance."""
-        self.symbol_manager = symbol_manager
+        self.symbols = symbols
         self.session = requests.Session()
 
     def get_price(self, symbol: str):
@@ -28,7 +28,7 @@ class BinancePriceFetcher:
     def get_all_prices(self):
         """Fetch prices for all tracked symbols."""
         results = {}
-        for symbol in self.symbol_manager.get_symbols():
+        for symbol in self.symbols:
             result = self.get_price(symbol)
             if "price" in result:
                 results[symbol] = result["price"]
@@ -192,9 +192,8 @@ class BinancePriceFetcher:
         Returns:
             Concatenated DataFrame with all historical data
         """
-        symbols = self.symbol_manager.get_symbols()
         compiled_symbol_df = pd.DataFrame()
-        for s in symbols:
+        for s in self.symbols:
             symbol_df = self.get_historical_ohlcv(s, interval, start_date, end_date)
             symbol_df = symbol_df[["timestamp", col]].copy()
             symbol_df = symbol_df.rename(columns={col:s})
@@ -210,13 +209,13 @@ class BinancePriceFetcher:
 if __name__ == "__main__":
     # Initialize managers
     symbol_manager = BinanceSymbolManager()
-    price_fetcher = BinancePriceFetcher(symbol_manager)
 
     # Add symbols
     print(symbol_manager.add_symbol("BTCUSDT"))  # Success
     print(symbol_manager.add_symbol("ETHUSDT"))  # Success
-    print(symbol_manager.add_symbol("INVALID"))  # Will add but fail in API
+    print(symbol_manager.add_symbol("INVALID"))  # Will not add
 
+    price_fetcher = BinancePriceFetcher(symbol_manager.get_symbols())
     # Fetch single price
     print("\nSingle Price Fetch:")
     print(price_fetcher.get_price("btcusdt"))  # {'symbol': 'BTCUSDT', 'price': 61234.50}
