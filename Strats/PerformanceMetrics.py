@@ -143,7 +143,7 @@ class ModelMetrics:
         - type: 'classification' or 'regression'.
         """
         if type == 'classification':
-            results = {
+            all_metrics = {
                 'accuracy': self.accuracy(),
                 'precision': self.precision(),
                 'recall': self.recall(),
@@ -154,7 +154,7 @@ class ModelMetrics:
             }
 
         elif type == 'regression':
-            results = {
+            all_metrics = {
                 'mse': self.mse(),
                 'rmse': self.rmse(),
                 'mae': self.mae(),
@@ -165,6 +165,6 @@ class ModelMetrics:
         else:
             raise ValueError("problem_type must be 'classification' or 'regression'.")
         
-        summary_df = pd.DataFrame(results, index=['PerformanceMetrics'])
+        summary_df = pd.DataFrame(all_metrics, index=['PerformanceMetrics'])
         return summary_df
 
