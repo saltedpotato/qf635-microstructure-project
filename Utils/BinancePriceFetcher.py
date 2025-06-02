@@ -158,23 +158,21 @@ class BinancePriceFetcher:
         current_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        with tqdm(total=(end_date - current_date).days) as pbar:
-            while current_date < end_date:
-                # Binance has 1000 data point limit per request
-                data = self.get_klines(
-                    symbol=symbol,
-                    interval=interval,
-                    start_time=current_date.strftime('%Y-%m-%d'),
-                    limit=1000
-                )
+        while current_date < end_date:
+            # Binance has 1000 data point limit per request
+            data = self.get_klines(
+                symbol=symbol,
+                interval=interval,
+                start_time=current_date.strftime('%Y-%m-%d'),
+                limit=1000
+            )
 
-                if data.empty:
-                    break
+            if data.empty:
+                break
 
-                all_data.append(data)
-                current_date = data['timestamp'].iloc[-1] + timedelta(milliseconds=1)
-                pbar.update((current_date - data['timestamp'].iloc[0]).days)
-                time.sleep(0.1)  # Rate limit
+            all_data.append(data)
+            current_date = data['timestamp'].iloc[-1] + timedelta(milliseconds=1)
+            time.sleep(0.1)  # Rate limit
 
         if all_data:
             return pd.concat(all_data).drop_duplicates().reset_index(drop=True)
