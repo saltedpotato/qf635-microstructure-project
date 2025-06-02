@@ -64,7 +64,8 @@ class SimpleStrategy:
             except IndexError:
                 # Handle cases where we reach the end of the data
                 break
-
+        portfolio_returns = pd.Series(portfolio_returns, name='Simple Momentum')
+        portfolio_returns = pd.DataFrame(portfolio_returns)
         return portfolio_returns.dropna()
 
 

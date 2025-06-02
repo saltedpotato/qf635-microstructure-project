@@ -1,4 +1,3 @@
-from Utils.import_files import *
 from scipy.stats import skew, kurtosis
 
 from Strats.SimpleStrat import *
@@ -100,7 +99,7 @@ class PortfolioMetrics:
         excess = self.returns - threshold
         return excess[excess > 0].sum() / abs(excess[excess < 0].sum())
 
-    def summary(self, periods_per_year=252, risk_free_rate=0.0):
+    def summary(self, periods_per_year=252, risk_free_rate=0.0, filter=False):
         """
         Generate comprehensive performance summary.
         """
@@ -117,8 +116,12 @@ class PortfolioMetrics:
             'Tail Ratio': self.tail_ratio(5),
             'Omega Ratio': self.omega_ratio(0.0)
         }
+        summary_df = pd.DataFrame(metrics, index=self.returns.columns)
 
-        return pd.DataFrame(metrics, index=self.returns.columns)
+        if filter:
+            return summary_df[filter]
+
+        return summary_df
 
 if __name__ == "__main__":
     # Define portfolio
@@ -145,6 +148,7 @@ if __name__ == "__main__":
     )
 
     returns = strategy.momentum_strategy(lookback=90, hold_period=30)
+    returns["Strat2"] = returns
 
     # Initialize metrics calculator
     metrics = PortfolioMetrics(returns)
