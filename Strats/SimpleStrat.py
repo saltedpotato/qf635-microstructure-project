@@ -73,7 +73,6 @@ class SimpleStrategy:
 if __name__ == "__main__":
     # Define portfolio
     symbol_manager = BinanceSymbolManager()
-    price_fetcher = BinancePriceFetcher(symbol_manager)
 
     # Add symbols
     print(symbol_manager.add_symbol("BTCUSDT"))  # Success
@@ -83,6 +82,7 @@ if __name__ == "__main__":
     tickers = symbol_manager.get_symbols()
     print(tickers)
 
+    price_fetcher = BinancePriceFetcher(tickers)
     btc_portfolio_daily = price_fetcher.get_grp_historical_ohlcv(
         interval="1d",
         start_date="2023-01-01",

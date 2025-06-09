@@ -150,12 +150,12 @@ class PortfolioMetrics:
 if __name__ == "__main__":
     # Define portfolio
     symbol_manager = BinanceSymbolManager()
-    price_fetcher = BinancePriceFetcher(symbol_manager)
 
     # Add symbols
     print(symbol_manager.add_symbol("BTCUSDT"))  # Success
     print(symbol_manager.add_symbol("ETHUSDT"))  # Success
 
+    price_fetcher = BinancePriceFetcher(symbol_manager.get_symbols())
     btc_portfolio_daily = price_fetcher.get_grp_historical_ohlcv(
         interval="1d",
         start_date="2023-01-01",
