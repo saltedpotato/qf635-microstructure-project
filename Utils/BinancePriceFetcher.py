@@ -158,6 +158,7 @@ class BinancePriceFetcher:
         current_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
+        start_time = time.time()
         while current_date < end_date:
             # Binance has 1000 data point limit per request
             data = self.get_klines(
