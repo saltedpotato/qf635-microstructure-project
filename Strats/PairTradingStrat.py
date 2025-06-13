@@ -69,107 +69,104 @@ def get_coint_pairs(tickers, interval = '1d', start_date="2023-01-01", end_date=
     return coint_pairs
 
 class pair_trading:
-    def __init__(self,x_data,y_data,lookback=None,ZSCORE_ENTRY=None, initial_capital=100000):
-        self.x_data = x_data
-        self.y_data = y_data
-        self.lookback = lookback
-        self.ZSCORE_ENTRY = ZSCORE_ENTRY
-        self.initial_capital = initial_capital
-        self.spread = None
-        self.z_scores = None
-        self.positions = None
-        self.beta = None # beta
+    def __init__(self, df):
+        self.df = df
 
-    def compute_spread(self,lookback=None):
-        x = self.x_data.iloc[:lookback]
-        y = self.y_data.iloc[:lookback]
+    def generate_signals(self, lookback, threshold):
+        # Calculate the rolling mean with a window size of lookback
+        self.df['rolling_mean'] = self.df.iloc[:, 1].rolling(window=lookback).mean()
+        self.df['rolling_std'] = self.df.iloc[:, 1].rolling(window=lookback).std()
+        self.df['z_scores'] = (self.df.iloc[:, 1] - self.df['rolling_mean']) / self.df['rolling_std']
 
-        X = sm.add_constant(x)
-        model = sm.OLS(y, X).fit()
-        self.beta = model.params[1]
-        intercept = model.params[0]
-        self.spread = y - (intercept + self.beta*x)
+        self.df.loc[self.df['z_scores'] > threshold, 'signal'] = -1
+        self.df.loc[self.df['z_scores'] < -threshold, 'signal'] = 1
+        self.df["signal"] = self.df["signal"].fillna(0)
+        self.df["signal"] = self.df["signal"].shift(1)
 
-        return self.spread
 
-    def compute_z_score(self, rolling_window=20):
-        """
-        Compute z-scores using only past data at each point
-        """
-        z_scores = pd.Series(index=self.spread.index, dtype=float)
-
-        for i in range(self.lookback + rolling_window, len(self.spread)):
-            window = self.spread.iloc[i-rolling_window:i]
-            mean = window.mean()
-            std = window.std()
-
-            if std > 0:  # Avoid division by zero
-                z_scores.iloc[i] = (self.spread.iloc[i] - mean) / std
-            else:
-                z_scores.iloc[i] = 0
-
-        self.z_scores = z_scores
-        return z_scores
-
-    def generate_signals(self):
-        """
-        Generate trading signals without lookahead
-        """
-        df = pd.DataFrame({
-            "z_scores": self.z_scores,
-            "beta": self.beta
-        })
-
-        # Initialize signal columns
-        df["z_signal"] = 0
-        df["positions"] = 0
-        df["BUY_or_SELL"] = 0
-
-        # Generate signals without lookahead
-        for i in range(1, len(df)):
-            if df.z_scores.iloc[i-1] < -self.ZSCORE_ENTRY:
-                df.z_signal.iloc[i] = 1
-            elif df.z_scores.iloc[i-1] > self.ZSCORE_ENTRY:
-                df.z_signal.iloc[i] = -1
-
-            # Position management
-            if (df.z_scores.iloc[i-1] * df.z_scores.iloc[i] < 0) and (df.positions.iloc[i-1] != 0):
-                df.positions.iloc[i] = 0
-            else:
-                df.positions.iloc[i] = df.z_signal.iloc[i]
-
-            # Determine trade direction
-            if df.positions.iloc[i] != df.positions.iloc[i-1]:
-                df.BUY_or_SELL.iloc[i] = df.positions.iloc[i] - df.positions.iloc[i-1]
-
-        return df
-
-    def plot_signals(self, df):
+    def plot_signals(self):
         fig, axs = plt.subplots(2,1, figsize=(15,9), sharex=True)
-        axs[0].plot(df.z_scores, label="Z-score")
+        axs[0].plot(self.df.z_scores, label="Z-score")
         axs[0].axhline(0,color='red')
         axs[0].set_ylabel("Z Scores")
         axs[0].set_xlabel("Date")
         axs[0].legend()
         axs[0].grid(True)
-        axs[0].plot(df.loc[df["BUY_or_SELL"] == -1].index, df.z_scores[df["BUY_or_SELL"] == -1], color='r', marker="v", linestyle='')
-        axs[0].plot(df.loc[df["BUY_or_SELL"] == +1].index, df.z_scores[df["BUY_or_SELL"] == +1], color='g', marker="^", linestyle='')
+        axs[0].plot(self.df.loc[self.df["signal"] == -1].index, self.df.z_scores[self.df["signal"] == -1], color='r', marker="v", linestyle='')
+        axs[0].plot(self.df.loc[self.df["signal"] == +1].index, self.df.z_scores[self.df["signal"] == +1], color='g', marker="^", linestyle='')
 
-        axs[1].plot(self.x_data, label="Asset x")
-        axs[1].plot(self.y_data, label="Asset y")
+        axs[1].plot(self.df.iloc[:, 1], label="Asset y")
         axs[1].legend()
         axs[1].grid(True)
         plt.show()
 
-    def computePnL(self,df): #have not account for capital
-        df["x_pnl"] = self.x_data*df["BUY_or_SELL"]*self.beta
-        df["y_pnl"] = self.y_data*-df["BUY_or_SELL"]
-        df['daily_pnl'] = df['x_pnl'] + df['y_pnl']
-        df['cumulative_pnl'] = (df['daily_pnl']).cumsum()
+    def computePnL(self, test_start_date): #have not account for capital
+        trades = self.df[self.df['timestamp'] >= test_start_date].copy().reset_index(drop=True)
+        # PnL variables - one set per security
+        position = 0
+        pnlUnrealized = 0
+        pnlRealized = 0
 
-        portfolio_value = self.initial_capital + df['cumulative_pnl']
-        # Daily return = (Today's PnL) / (Yesterday's Portfolio Value)
-        df['daily_return'] = df['cumulative_pnl'].diff() / portfolio_value.shift(1)
-        df['daily_return'].fillna(0, inplace=True)  # First day has no prior value
+        avg_short_price = 0
+        short_pos = 0
+        avg_long_price = 0
+        long_pos = 0
+        closed_pos = 0
 
-        return df
+        pnl_df =pd.DataFrame()
+        positions = []
+        pnlUnrealized_list = []
+        pnlRealized_list = []
+        daily_pnl = []
+
+        # for each trade
+        for i in range(0, len(trades)):
+            qty = trades['signal'][i]
+            price = trades.iloc[:, 1][i]
+
+            if qty < 0:
+                avg_short_price = (avg_short_price * short_pos + price * qty) / (short_pos + qty)
+                short_pos += qty
+            elif qty > 0:
+                avg_long_price = (avg_long_price * long_pos + price * qty) / (long_pos + qty)
+                long_pos += qty
+
+            if i > 0:
+                prev_qty = trades['signal'][i - 1]
+                if (qty * position) < 0:
+                    closed_pos = min(abs(qty), abs(position))
+                else:
+                    closed_pos = 0
+                short_pos += closed_pos
+                long_pos -= closed_pos
+
+                if (position+qty) < 0:
+                    pnlUnrealized = (avg_short_price - price) * -(position+qty)
+                else:
+                    pnlUnrealized = (avg_long_price - price) * (position+qty)
+                # print(closed_pos)
+
+            position += qty
+            pnlRealized += (avg_short_price - avg_long_price) * closed_pos
+            daily_pnl += [(avg_short_price - avg_long_price) * closed_pos + pnlUnrealized]
+
+            positions += [position]
+            pnlUnrealized_list += [pnlUnrealized]
+            pnlRealized_list += [pnlRealized]
+
+            if short_pos == 0:
+                avg_short_price = 0
+            if long_pos == 0:
+                avg_long_price = 0
+
+
+        pnl_df["Date"] = trades["timestamp"]
+        pnl_df["Price"] = trades.iloc[:, 1]
+        pnl_df["Signal"] = trades["signal"]
+        pnl_df["Positions"] = positions
+        pnl_df["Realized_PnL"] = pnlRealized_list
+        pnl_df["Unrealized_PnL"] = pnlUnrealized_list
+        pnl_df["Daily_PnL"] = daily_pnl
+        pnl_df["PnL_Total"] = pnl_df["Realized_PnL"] + pnl_df["Unrealized_PnL"]
+
+        return pnl_df
