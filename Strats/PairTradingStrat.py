@@ -1,6 +1,4 @@
-from statsmodels.tsa.stattools import coint
-from itertools import combinations
-import pickle
+from statsmodels.tsa.stattools import adfuller
 from Utils.BinancePriceFetcher import *
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
@@ -39,49 +37,35 @@ def exit_after(s):
     return outer
 
 @exit_after(1)
-def get_pair_prices(pair, interval = '1d', start_date="2023-01-01", end_date="2023-12-31"):
-    price_fetcher = BinancePriceFetcher(pair) #Initialise price fetcher
-    prices = price_fetcher.get_grp_historical_ohlcv(
-            interval=interval,
-            start_date=start_date,
-            end_date=end_date
+def get_pair_prices(ticker, interval = '1d', start_date="2023-01-01", end_date="2023-12-31"):
+    price_fetcher = BinancePriceFetcher([ticker]) #Initialise price fetcher
+    prices = price_fetcher.get_historical_ohlcv(
+        symbol=ticker,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date
     )
     return prices
 
-def coint_test(p1, p2):
-    score, p_value, _ = coint(p1, p2)
-    if p_value < 0.05:
-        return True
-    else:
-        return False
 
-
-def get_coint_pairs(tickers, r=2, max_pairs = 100, interval = '1d', start_date="2023-01-01", end_date="2023-12-31"):
-    all_pairs = list(combinations(tickers, r))
+def get_coint_pairs(tickers, interval = '1d', start_date="2023-01-01", end_date="2023-12-31"):
     coint_pairs = []
-    corrupt_tickers = []
-    for pair in tqdm(all_pairs):
+    for ticker in tqdm(tickers):
         try:
-            if (pair[0] in corrupt_tickers) or (pair[1] in corrupt_tickers):
+            prices = get_pair_prices(ticker, interval = interval, start_date=start_date, end_date=end_date)
+            if len(prices) == 0:
                 continue
+            result = adfuller(prices["close"])
+            if result[1] < 0.05:
+                coint_pairs.append(ticker)
 
-            prices = get_pair_prices(pair, interval = interval, start_date=start_date, end_date=end_date)
-
-            # To prevent survivorship bias
-            prices = prices.dropna()
-
-            if coint_test(prices[pair[0]], prices[pair[1]]):
-                coint_pairs += [pair]
-
-            if len(coint_pairs) > max_pairs:
-                break;
         except KeyboardInterrupt as e:
-            corrupt_tickers += [pair[-1]]
             continue
         except KeyError as e:
             continue
-    with open('Strats/pairs/saved_pairs.pkl', 'wb') as f:
-        pickle.dump(coint_pairs, f)
+
+    # with open('Strats/pairs/saved_pairs.pkl', 'wb') as f:
+    #     pickle.dump(coint_pairs, f)
     return coint_pairs
 
 class pair_trading:

@@ -176,7 +176,9 @@ class BinancePriceFetcher:
             time.sleep(0.1)  # Rate limit
 
         if all_data:
-            return pd.concat(all_data).drop_duplicates().reset_index(drop=True)
+            final = pd.concat(all_data).drop_duplicates().reset_index(drop=True)
+            final = final[final['timestamp']<= end_date]
+            return final
         return pd.DataFrame()
 
     def get_grp_historical_ohlcv(self, interval: str, start_date: str, end_date: str = None, col: str = "close") -> pd.DataFrame:
