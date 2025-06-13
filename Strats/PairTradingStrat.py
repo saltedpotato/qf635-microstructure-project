@@ -1,7 +1,7 @@
 from statsmodels.tsa.stattools import adfuller
 from Utils.BinancePriceFetcher import *
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
+from Strats.PortfolioMetrics import *
 
 import sys
 import threading
@@ -170,3 +170,36 @@ class pair_trading:
         pnl_df["PnL_Total"] = pnl_df["Realized_PnL"] + pnl_df["Unrealized_PnL"]
 
         return pnl_df
+
+# Example Usage
+if __name__ == "__main__":
+    # Get all available tickers
+    response = requests.get(f"{BASE_URL}/ticker/price")
+    data = response.json()
+    BTC_pairs = [i["symbol"] for i in data if "BTC" in i["symbol"]]
+    coint_pairs = get_coint_pairs(BTC_pairs, interval='1d', start_date="2023-01-01", end_date="2023-12-31")
+
+    test_pair = coint_pairs[10]
+
+    symbol_manager = BinanceSymbolManager()
+    # Add symbols
+    print(symbol_manager.add_symbol(test_pair))  # Success
+
+    price_fetcher = BinancePriceFetcher(symbol_manager.get_symbols())
+    # Fetch pair historical price
+    pair_portfolio = price_fetcher.get_grp_historical_ohlcv(
+        interval="1d",
+        start_date="2023-01-01",
+        end_date="2024-12-31"
+    )
+
+
+    model = pair_trading(pair_portfolio.copy())
+    spread = model.generate_signals(lookback=10, threshold=1.5)
+    pnl_df = model.computePnL(test_start_date="2024-01-01")
+
+    returns = pnl_df[("Daily_PnL")]
+
+    port_metrics = PortfolioMetrics(returns.dropna())
+    summary = port_metrics.summary(risk_free_rate=0.02)  # 2% risk-free rate
+    print(summary)
