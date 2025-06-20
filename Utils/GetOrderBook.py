@@ -48,8 +48,8 @@ def parse_order_book(json_object: dict, symbol: str) -> OrderBook:
 
 
 class OrderBookManager:
-    def __init__(self, symbol_manager: BinanceSymbolManager):
-        self.symbol_manager = symbol_manager
+    def __init__(self, tickers: list):
+        self.tickers = tickers
         self.order_books = {}  # Stores OrderBook objects by symbol
 
     def fetch_order_book(self, symbol: str, limit: int = 100) -> OrderBook:
@@ -69,7 +69,7 @@ class OrderBookManager:
 
     def fetch_all_order_books(self, limit: int = 100):
         """Fetch order books for all tracked symbols"""
-        for symbol in self.symbol_manager.get_symbols():
+        for symbol in self.tickers:
             self.fetch_order_book(symbol, limit)
 
     def print_top_of_book(self):
@@ -85,18 +85,18 @@ if __name__ == '__main__':
 
     # Initialize managers
     symbol_manager = BinanceSymbolManager()
-    order_book_manager = OrderBookManager(symbol_manager)
 
     # Add symbols to track
     symbol_manager.add_symbol("BTCUSDT")
     symbol_manager.add_symbol("ETHUSDT")
     symbol_manager.add_symbol("BNBUSDT")
 
+    order_book_manager = OrderBookManager(symbol_manager.get_symbols())
+
     # Main loop
     while True:
         try:
             start_time = time.time()
-
             # Fetch all order books
             order_book_manager.fetch_all_order_books(limit=10)
 

@@ -69,38 +69,43 @@ def get_coint_pairs(tickers, interval = '1d', start_date="2023-01-01", end_date=
     return coint_pairs
 
 class pair_trading:
-    def __init__(self, df):
+    def __init__(self, df, weights):
         self.df = df
+        self.tickers = df.columns.tolist()[1:]
+        self.weights = weights
 
     def generate_signals(self, lookback, threshold):
         # Calculate the rolling mean with a window size of lookback
-        self.df['rolling_mean'] = self.df.iloc[:, 1].rolling(window=lookback).mean()
-        self.df['rolling_std'] = self.df.iloc[:, 1].rolling(window=lookback).std()
-        self.df['z_scores'] = (self.df.iloc[:, 1] - self.df['rolling_mean']) / self.df['rolling_std']
+        for t in self.tickers:
+            self.df[t+'_rolling_mean'] = self.df[t].rolling(window=lookback).mean()
+            self.df[t+'_rolling_std'] = self.df[t].rolling(window=lookback).std()
+            self.df[t+'_z_scores'] = (self.df[t] - self.df[t+'_rolling_mean']) / self.df[t+'_rolling_std']
 
-        self.df.loc[self.df['z_scores'] > threshold, 'signal'] = -1
-        self.df.loc[self.df['z_scores'] < -threshold, 'signal'] = 1
-        self.df["signal"] = self.df["signal"].fillna(0)
-        self.df["signal"] = self.df["signal"].shift(1)
+            self.df.loc[self.df[t+'_z_scores'] > threshold, t+'_signal'] = -1
+            self.df.loc[self.df[t+'_z_scores'] < -threshold, t+'_signal'] = 1
+            self.df[t+"_signal"] = self.df[t+"_signal"].fillna(0)
+            self.df[t+"_signal"] = self.df[t+"_signal"].shift(1)
+
+        return self.df
 
 
-    def plot_signals(self):
+    def plot_signals(self, ticker):
         fig, axs = plt.subplots(2,1, figsize=(15,9), sharex=True)
-        axs[0].plot(self.df.z_scores, label="Z-score")
+        axs[0].plot(self.df[ticker+"_z_scores"], label="Z-score")
         axs[0].axhline(0,color='red')
         axs[0].set_ylabel("Z Scores")
         axs[0].set_xlabel("Date")
         axs[0].legend()
         axs[0].grid(True)
-        axs[0].plot(self.df.loc[self.df["signal"] == -1].index, self.df.z_scores[self.df["signal"] == -1], color='r', marker="v", linestyle='')
-        axs[0].plot(self.df.loc[self.df["signal"] == +1].index, self.df.z_scores[self.df["signal"] == +1], color='g', marker="^", linestyle='')
+        axs[0].plot(self.df.loc[self.df[ticker+"_signal"] == -1].index, self.df[ticker+"_z_scores"][self.df[ticker+"_signal"] == -1], color='r', marker="v", linestyle='')
+        axs[0].plot(self.df.loc[self.df[ticker+"_signal"] == +1].index, self.df[ticker+"_z_scores"][self.df[ticker+"_signal"] == +1], color='g', marker="^", linestyle='')
 
-        axs[1].plot(self.df.iloc[:, 1], label="Asset y")
+        axs[1].plot(self.df[ticker], label="Asset y")
         axs[1].legend()
         axs[1].grid(True)
         plt.show()
 
-    def computePnL(self, test_start_date): #have not account for capital
+    def computePnL(self, ticker, test_start_date): #have not account for capital
         trades = self.df[self.df['timestamp'] >= test_start_date].copy().reset_index(drop=True)
         # PnL variables - one set per security
         position = 0
@@ -121,8 +126,8 @@ class pair_trading:
 
         # for each trade
         for i in range(0, len(trades)):
-            qty = trades['signal'][i]
-            price = trades.iloc[:, 1][i]
+            qty = trades[ticker+'_signal'][i]
+            price = trades[ticker][i]
 
             if qty < 0:
                 avg_short_price = (avg_short_price * short_pos + price * qty) / (short_pos + qty)
@@ -132,7 +137,6 @@ class pair_trading:
                 long_pos += qty
 
             if i > 0:
-                prev_qty = trades['signal'][i - 1]
                 if (qty * position) < 0:
                     closed_pos = min(abs(qty), abs(position))
                 else:
@@ -161,8 +165,8 @@ class pair_trading:
 
 
         pnl_df["Date"] = trades["timestamp"]
-        pnl_df["Price"] = trades.iloc[:, 1]
-        pnl_df["Signal"] = trades["signal"]
+        pnl_df["Price"] = trades[ticker]
+        pnl_df["Signal"] = trades[ticker+"_signal"]
         pnl_df["Positions"] = positions
         pnl_df["Realized_PnL"] = pnlRealized_list
         pnl_df["Unrealized_PnL"] = pnlUnrealized_list
@@ -170,6 +174,25 @@ class pair_trading:
         pnl_df["PnL_Total"] = pnl_df["Realized_PnL"] + pnl_df["Unrealized_PnL"]
 
         return pnl_df
+
+    def computePortfolioPnL(self, test_start_date):
+        portfolioPnL = pd.DataFrame()
+        for ind, t in enumerate(self.tickers):
+            pnl_df = self.computePnL(t, test_start_date)
+            portfolioPnL[t+"_daily_pnl"] = pnl_df["Daily_PnL"]
+            if ind > 0:
+                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
+                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * self.weights[ind]
+            else:
+                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
+                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * self.weights[ind]
+
+        portfolioPnL["timestamp"] = self.df["timestamp"]
+        portfolioPnL = portfolioPnL[["timestamp", "total_daily_pnl", "total_pnl"]]
+
+        return portfolioPnL
+
+
 
 # Example Usage
 if __name__ == "__main__":
