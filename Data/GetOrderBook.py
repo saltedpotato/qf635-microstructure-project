@@ -1,4 +1,4 @@
-from Utils.BinanceSymbolManager import *
+from Data.BinanceSymbolManager import *
 
 # Tier represents a price level
 class Tier:

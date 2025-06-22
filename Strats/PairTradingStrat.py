@@ -1,5 +1,5 @@
 from statsmodels.tsa.stattools import adfuller
-from Utils.BinancePriceFetcher import *
+from Data.BinancePriceFetcher import *
 import matplotlib.pyplot as plt
 from Strats.PortfolioMetrics import *
 
@@ -36,7 +36,7 @@ def exit_after(s):
         return inner
     return outer
 
-@exit_after(1)
+@exit_after(5)
 def get_pair_prices(ticker, interval = '1d', start_date="2023-01-01", end_date="2023-12-31"):
     price_fetcher = BinancePriceFetcher([ticker]) #Initialise price fetcher
     prices = price_fetcher.get_historical_ohlcv(

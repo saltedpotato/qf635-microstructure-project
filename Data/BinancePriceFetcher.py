@@ -1,4 +1,4 @@
-from Utils.BinanceSymbolManager import *
+from Data.BinanceSymbolManager import *
 
 class BinancePriceFetcher:
     def __init__(self, symbols: list):

@@ -1,4 +1,4 @@
-from Utils.BinancePriceFetcher import *
+from Data.BinancePriceFetcher import *
 
 class SimpleStrategy:
     def __init__(self, tickers, weights, data):
