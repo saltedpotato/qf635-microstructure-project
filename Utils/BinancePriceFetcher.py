@@ -241,7 +241,7 @@ if __name__ == "__main__":
     )
 
     btc_portfolio = price_fetcher.get_grp_historical_ohlcv(
-        interval="1d",
+        interval="5m",
         start_date="2023-01-01",
         end_date="2023-12-31"
     )
