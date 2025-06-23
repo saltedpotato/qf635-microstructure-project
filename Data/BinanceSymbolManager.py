@@ -1,4 +1,4 @@
-from Data.import_files import *
+from Utils.import_files import *
 
 class BinanceSymbolManager:
     def __init__(self):

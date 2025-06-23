@@ -29,7 +29,7 @@ class PortfolioMetrics:
         """
         compounded_growth = (1 + self.returns).prod()
         n_periods = len(self.returns)
-        return compounded_growth ** (periods_per_year / n_periods) - 1
+        return float(compounded_growth) ** (periods_per_year / n_periods) - 1
 
     def annualized_volatility(self, periods_per_year=252):
         """

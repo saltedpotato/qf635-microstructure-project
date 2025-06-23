@@ -1,7 +1,7 @@
 from statsmodels.tsa.stattools import adfuller
 from Data.BinancePriceFetcher import *
 import matplotlib.pyplot as plt
-from Strats.PortfolioMetrics import *
+from PnL_Metrics.PortfolioMetrics import *
 
 import sys
 import threading
@@ -68,11 +68,36 @@ def get_coint_pairs(tickers, interval = '1d', start_date="2023-01-01", end_date=
     #     pickle.dump(coint_pairs, f)
     return coint_pairs
 
+def hurst_exponent(ts: pd.Series, max_lags: int = 50) -> float:
+    """
+    Calculate the Hurst Exponent of a time series.
+        
+    Args:
+        time_series (pd.Series): Input time series (e.g., stock prices, spreads).
+        max_lags (int): Maximum number of lags to compute rescaled range (R/S).
+        
+    Returns:
+        float: Hurst Exponent value.
+    """
+    # Create the range of lag values
+    lags = range(2, 100)
+
+    # Calculate the array of the variances of the lagged differences
+    tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
+
+    # Use a linear fit to estimate the Hurst Exponent
+    poly = np.polyfit(np.log(lags), np.log(tau), 1)
+
+    # Return the Hurst exponent from the polyfit output
+    return poly[0]*2.0
+
+
 class pair_trading:
     def __init__(self, df, weights):
         self.df = df
         self.tickers = df.columns.tolist()[1:]
         self.weights = weights
+
 
     def generate_signals(self, lookback, execute_threshold, close_threshold):
         # Calculate the rolling mean with a window size of lookback
@@ -80,132 +105,24 @@ class pair_trading:
             self.df[t+'_rolling_mean'] = self.df[t].rolling(window=lookback).mean()
             self.df[t+'_rolling_std'] = self.df[t].rolling(window=lookback).std()
             self.df[t+'_z_scores'] = (self.df[t] - self.df[t+'_rolling_mean']) / self.df[t+'_rolling_std']
+            is_mean_revert = []
+            for i in range(lookback, len(self.df)):
+                if hurst_exponent(self.df[t][i-lookback:i].values) < 0.5:
+                    is_mean_revert += [1]
+                else:
+                    is_mean_revert += [0]
+                
+            self.df[t+'_is_mean_revert'] = [0] * (len(self.df) - len(is_mean_revert)) + is_mean_revert
+            self.df[t+"_is_mean_revert"] = self.df[t+"_is_mean_revert"].fillna(0)
 
             self.df[t+'_signal'] = np.where((self.df[t+'_z_scores'] > execute_threshold) | (self.df[t+'_z_scores'] < -execute_threshold), 1, 0)
-            # self.df.loc[self.df[t+'_z_scores'] > execute_threshold, t+'_signal'] = -1
-            # self.df.loc[self.df[t+'_z_scores'] < -execute_threshold, t+'_signal'] = 1
-            self.df[t+"_signal"] = self.df[t+"_signal"].fillna(0)
+            self.df[t+'_signal'] = np.where(self.df[t+'_is_mean_revert'] != 1, 0, self.df[t+'_signal'])
+        
 
             self.df[t+'_exit_signal'] = np.where((self.df[t+'_z_scores'] > -close_threshold) & (self.df[t+'_z_scores'] < close_threshold), 1, 0)
-            self.df[t+"_exit_signal"] = self.df[t+"_exit_signal"].fillna(0)
+            self.df[t+'_exit_signal'] = np.where(self.df[t+'_exit_signal'] != 1, 1, self.df[t+'_exit_signal'])
 
         return self.df
-
-
-    def plot_signals(self, ticker):
-        fig, axs = plt.subplots(2,1, figsize=(15,9), sharex=True)
-        axs[0].plot(self.df[ticker+"_z_scores"], label="Z-score")
-        axs[0].axhline(0,color='red')
-        axs[0].set_ylabel("Z Scores")
-        axs[0].set_xlabel("Date")
-        axs[0].legend()
-        axs[0].grid(True)
-        axs[0].plot(self.df.loc[self.df[ticker+"_signal"] == -1].index, self.df[ticker+"_z_scores"][self.df[ticker+"_signal"] == -1], color='r', marker="v", linestyle='')
-        axs[0].plot(self.df.loc[self.df[ticker+"_signal"] == +1].index, self.df[ticker+"_z_scores"][self.df[ticker+"_signal"] == +1], color='g', marker="^", linestyle='')
-
-        axs[1].plot(self.df[ticker], label="Asset y")
-        axs[1].legend()
-        axs[1].grid(True)
-        plt.show()
-
-    def computePnL(self, ticker, test_start_date): #have not account for capital
-        trades = self.df[self.df['timestamp'] >= test_start_date].copy().reset_index(drop=True)
-        # PnL variables - one set per security
-        position = 0
-        pnlUnrealized = 0
-        pnlRealized = 0
-
-        avg_short_price = 0
-        short_pos = 0
-        avg_long_price = 0
-        long_pos = 0
-        closed_pos = 0
-
-        positions = []
-        pnlUnrealized_list = []
-        pnlRealized_list = []
-        daily_pnl = []
-        daily_pnl_pct = []
-
-        # for each trade
-        for i in range(0, len(trades)):
-            qty = trades[ticker+'_signal'][i]
-            price = trades[ticker][i]
-            exit_signal = trades[ticker+'_exit_signal'][i]
-
-            if exit_signal == 1:
-                if position != 0:
-                    qty = -position #close position
-
-            if qty < 0:
-                avg_short_price = (avg_short_price * short_pos + price * qty) / (short_pos + qty)
-                short_pos += qty
-            elif qty > 0:
-                avg_long_price = (avg_long_price * long_pos + price * qty) / (long_pos + qty)
-                long_pos += qty
-
-            if i > 0:
-                if (qty * position) < 0:
-                    closed_pos = min(abs(qty), abs(position))
-                else:
-                    closed_pos = 0
-                short_pos += closed_pos
-                long_pos -= closed_pos
-
-                if (position+qty) < 0:
-                    pnlUnrealized = (avg_short_price - price) * -(position+qty)
-                else:
-                    pnlUnrealized = (avg_long_price - price) * (position+qty)
-                # print(closed_pos)
-
-            position += qty
-            pnlRealized += (avg_short_price - avg_long_price) * closed_pos
-            daily_pnl += [(avg_short_price - avg_long_price) * closed_pos + pnlUnrealized]
-
-            positions += [position]
-            pnlUnrealized_list += [pnlUnrealized]
-            pnlRealized_list += [pnlRealized]
-            try:
-                daily_pnl_pct += [((pnlRealized+pnlUnrealized) - (pnlUnrealized_list[-2] + pnlRealized_list[-2]))/(pnlUnrealized_list[-2] + pnlRealized_list[-2])]
-            except:
-                daily_pnl_pct += [np.nan]
-
-            if short_pos == 0:
-                avg_short_price = 0
-            if long_pos == 0:
-                avg_long_price = 0
-
-        pnl_df = trades[["timestamp", ticker, ticker+"_signal"]].copy()
-        pnl_df.columns = ["Date", "Price", "Signal"]
-        pnl_df["Positions"] = positions
-        pnl_df["Realized_PnL"] = pnlRealized_list
-        pnl_df["Unrealized_PnL"] = pnlUnrealized_list
-        pnl_df["Daily_PnL"] = daily_pnl
-        pnl_df["Daily_PnL_Pct"] = daily_pnl_pct
-        pnl_df["PnL_Total"] = pnl_df["Realized_PnL"] + pnl_df["Unrealized_PnL"]
-
-        return pnl_df
-
-    def computePortfolioPnL(self, test_start_date):
-        portfolioPnL = pd.DataFrame()
-        for ind, t in enumerate(self.tickers):
-            pnl_df = self.computePnL(t, test_start_date)
-            portfolioPnL[t+"_daily_pnl"] = pnl_df["Daily_PnL"]
-            portfolioPnL[t+"_daily_pnl_pct"] = pnl_df["Daily_PnL_Pct"]
-            if ind > 0:
-                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
-                portfolioPnL["total_daily_pnl_pct"] = portfolioPnL["total_daily_pnl_pct"] + portfolioPnL[t+"_daily_pnl_pct"] * self.weights[ind]
-                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * self.weights[ind]
-            else:
-                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
-                portfolioPnL["total_daily_pnl_pct"] = portfolioPnL[t+"_daily_pnl_pct"] * self.weights[ind]
-                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * self.weights[ind]
-
-        portfolioPnL["timestamp"] = pnl_df["Date"]
-        portfolioPnL = portfolioPnL[["timestamp", "total_daily_pnl", "total_daily_pnl_pct", "total_pnl"]]
-
-        return portfolioPnL
-
 
 
 # Example Usage
