@@ -1,7 +1,7 @@
-from Data.BinancePriceFetcher import *
+from Utils.import_files import *
 
-class SimpleStrategy:
-    def __init__(self, tickers, weights, data):
+class MomentumStrat:
+    def __init__(self, data):
         """
         Initialize the portfolio strategy.
 
@@ -11,15 +11,9 @@ class SimpleStrategy:
         - start_date (str): Start date in 'YYYY-MM-DD' format.
         - end_date (str): End date in 'YYYY-MM-DD' format.
         """
-        self.tickers = tickers
-        self.weights = np.array(weights)
-        self.data = data[tickers]
-
-        if len(tickers) != len(weights):
-            raise Exception("Size of tickers and weights do not match.")
-
-        if weights.sum() != 1:
-            raise Exception("Weights do not sum to 1.")
+        self.tickers = data.columns.tolist()[1:]
+        self.data = data
+        self.df_train = data[self.tickers]
 
     def momentum_strategy(self, lookback=20, hold_period=5):
         """
@@ -28,19 +22,23 @@ class SimpleStrategy:
         - Invest in top-performing stocks for `hold_period` days.
 
         Returns:
-        - pd.Series: Portfolio returns.
+        - tuple: (strategy_df, weights_array) where:
+            strategy_df: DataFrame containing price, signal, and exit_signal for each ticker
+            weights_array: numpy array of weights for each period
         """
         # Calculate returns and momentum
-        returns = self.data.pct_change().dropna()
-        momentum = self.data.pct_change(lookback).dropna()
+        returns = self.df_train.pct_change().dropna()
+        momentum = self.df_train.pct_change(lookback).dropna()
 
         # Align the indices
         valid_dates = returns.index.intersection(momentum.index)
         returns = returns.loc[valid_dates]
         momentum = momentum.loc[valid_dates]
 
-        portfolio_returns = pd.Series(index=returns.index, dtype=float)
-
+        # Initialize output DataFrames and arrays
+        signal_df = pd.DataFrame(index=returns.index, columns=self.tickers)
+        exit_signal_df = pd.DataFrame(index=returns.index, columns=self.tickers)
+        
         # Ensure we have enough data
         if len(returns) <= lookback:
             raise ValueError("Not enough data points for the given lookback period")
@@ -51,54 +49,32 @@ class SimpleStrategy:
                 current_momentum = momentum.iloc[i]
                 top_stocks = current_momentum.nlargest(len(self.tickers) // 2).index.tolist()
 
-                # Create weights: 1/N for top stocks, 0 otherwise
-                weights = np.array([
-                    1 / len(top_stocks) if ticker in top_stocks else 0
-                    for ticker in self.tickers
-                ])
-
-                # Apply weights to the next `hold_period` days
-                period_returns = returns.iloc[i:i + hold_period]
-                portfolio_returns.iloc[i:i + hold_period] = (period_returns * weights).sum(axis=1)
+                # Generate signals
+                for j in range(hold_period):
+                    current_idx = i + j
+                    if current_idx >= len(returns):
+                        break
+                    
+                    # Entry signal (1 for buy at start of period)
+                    if j == 0:
+                        signal_df.iloc[current_idx] = [1 if ticker in top_stocks else 0 for ticker in self.tickers]
+                    else:
+                        signal_df.iloc[current_idx] = 0
+                    
+                    # Exit signal (1 for sell at end of period)
+                    if j == (hold_period - 1):
+                        exit_signal_df.iloc[current_idx] = [1 if ticker in top_stocks else 0 for ticker in self.tickers]
+                    else:
+                        exit_signal_df.iloc[current_idx] = 0
 
             except IndexError:
                 # Handle cases where we reach the end of the data
                 break
-        portfolio_returns = pd.Series(portfolio_returns, name='Simple Momentum')
-        portfolio_returns = pd.DataFrame(portfolio_returns)
-        return portfolio_returns.dropna()
-
-
-# Example Usage
-if __name__ == "__main__":
-    # Define portfolio
-    symbol_manager = BinanceSymbolManager()
-
-    # Add symbols
-    print(symbol_manager.add_symbol("BTCUSDT"))  # Success
-    print(symbol_manager.add_symbol("ETHUSDT"))  # Success
-    print(symbol_manager.add_symbol("INVALID"))  # Will add but fail in API
-
-    tickers = symbol_manager.get_symbols()
-    print(tickers)
-
-    price_fetcher = BinancePriceFetcher(tickers)
-    btc_portfolio_daily = price_fetcher.get_grp_historical_ohlcv(
-        interval="1d",
-        start_date="2023-01-01",
-        end_date="2023-12-31"
-    )
-
-    weights = np.array([0.5, 0.5])  # Equal-weighted
-
-
-    # Initialize strategy
-    strategy = SimpleStrategy(
-        tickers=tickers,
-        weights=weights,
-        data=btc_portfolio_daily
-    )
-    print(btc_portfolio_daily.shape)
-    # Get momentum strategy returns
-    momentum_returns = strategy.momentum_strategy(lookback=90, hold_period=30)
-    print("\nMomentum Strategy Returns (Head):\n", momentum_returns.head())
+        
+        # Combine all data into output DataFrame
+        strategy_df = self.data[["timestamp"] + self.tickers]
+        for ticker in self.tickers:
+            strategy_df[ticker+'_signal'] = signal_df[ticker].fillna(0)
+            strategy_df[ticker+'_exit_signal'] = exit_signal_df[ticker].fillna(0)    
+        
+        return strategy_df

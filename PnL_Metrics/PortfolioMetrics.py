@@ -4,7 +4,7 @@ from Strats.SimpleStrat import *
 
 
 class PortfolioMetrics:
-    def __init__(self, returns):
+    def __init__(self, returns, periods_per_year=252):
         """
         Initialize the metrics calculator with portfolio returns.
 
@@ -19,30 +19,34 @@ class PortfolioMetrics:
 
         # Convert returns to float if not already
         self.returns = self.returns.astype(float)
+        self.periods_per_year = periods_per_year
 
-    def annualized_return(self, periods_per_year=252):
+    def annualized_return(self):
         """
         Calculate annualized return.
 
         Parameters:
         - periods_per_year: trading days/year (252 for daily, 12 for monthly)
         """
-        compounded_growth = (1 + self.returns).prod()
+        try:
+            compounded_growth = float((1 + self.returns).prod())
+        except:
+            compounded_growth = (1 + self.returns).prod()
         n_periods = len(self.returns)
-        return float(compounded_growth) ** (periods_per_year / n_periods) - 1
+        return compounded_growth ** (self.periods_per_year / n_periods) - 1
 
-    def annualized_volatility(self, periods_per_year=252):
+    def annualized_volatility(self):
         """
         Calculate annualized volatility (standard deviation).
         """
-        return self.returns.std() * np.sqrt(periods_per_year)
+        return self.returns.std() * np.sqrt(self.periods_per_year)
 
-    def sharpe_ratio(self, risk_free_rate=0.0, periods_per_year=252):
+    def sharpe_ratio(self, risk_free_rate=0.0):
         """
         Calculate Sharpe ratio.
         """
-        excess_returns = self.returns - risk_free_rate / periods_per_year
-        return (excess_returns.mean() * periods_per_year) / self.annualized_volatility(periods_per_year)
+        excess_returns = self.returns - risk_free_rate / self.periods_per_year
+        return (excess_returns.mean() * self.periods_per_year) / self.annualized_volatility()
 
     def max_drawdown(self):
         """
@@ -76,11 +80,11 @@ class PortfolioMetrics:
             durations.append(len(drawdowns) - current_start)
         return max(durations, default=0)
 
-    def calmar_ratio(self, periods_per_year=252):
+    def calmar_ratio(self):
         """
         Calculate Calmar ratio (return vs max drawdown).
         """
-        return self.annualized_return(periods_per_year) / abs(self.max_drawdown())
+        return self.annualized_return() / abs(self.max_drawdown())
 
     def skewness(self):
         """
@@ -122,17 +126,17 @@ class PortfolioMetrics:
         excess = self.returns - threshold
         return excess[excess > 0].sum() / abs(excess[excess < 0].sum())
 
-    def summary(self, periods_per_year=252, risk_free_rate=0.0, filter=False):
+    def summary(self, risk_free_rate=0.0, filter=False):
         """
         Generate comprehensive performance summary.
         """
         all_metrics = {
-            'Annualized Return': self.annualized_return(periods_per_year),
-            'Annualized Volatility': self.annualized_volatility(periods_per_year),
-            'Sharpe Ratio': self.sharpe_ratio(risk_free_rate, periods_per_year),
+            'Annualized Return': self.annualized_return(),
+            'Annualized Volatility': self.annualized_volatility(),
+            'Sharpe Ratio': self.sharpe_ratio(risk_free_rate),
             'Max Drawdown Duration': self.max_drawdown_duration(),
             'Max Drawdown': self.max_drawdown(),
-            'Calmar Ratio': self.calmar_ratio(periods_per_year),
+            'Calmar Ratio': self.calmar_ratio(),
             'Skewness': self.skewness(),
             'Kurtosis': self.kurtosis(),
             f'VaR ({5}%)': self.value_at_risk(5),
@@ -146,44 +150,3 @@ class PortfolioMetrics:
             return summary_df[filter]
 
         return summary_df
-
-if __name__ == "__main__":
-    # Define portfolio
-    symbol_manager = BinanceSymbolManager()
-
-    # Add symbols
-    print(symbol_manager.add_symbol("BTCUSDT"))  # Success
-    print(symbol_manager.add_symbol("ETHUSDT"))  # Success
-
-    price_fetcher = BinancePriceFetcher(symbol_manager.get_symbols())
-    btc_portfolio_daily = price_fetcher.get_grp_historical_ohlcv(
-        interval="1d",
-        start_date="2023-01-01",
-        end_date="2023-12-31"
-    )
-
-    weights = np.array([0.5, 0.5])  # Equal-weighted
-
-    # Initialize strategy
-    strategy = SimpleStrategy(
-        tickers=symbol_manager.get_symbols(),
-        weights=weights,
-        data=btc_portfolio_daily
-    )
-
-    returns = strategy.momentum_strategy(lookback=90, hold_period=30)
-    returns["Strat2"] = returns
-
-    # Initialize metrics calculator
-    port_metrics = PortfolioMetrics(returns)
-
-    # Get individual metrics
-    print("Annualized Returns:\n", port_metrics.annualized_return())
-    print("\nSharpe Ratios:\n", port_metrics.sharpe_ratio())
-    print("\nMax Drawdown:\n", port_metrics.max_drawdown())
-    print("\nMax Drawdown Duration:\n", port_metrics.max_drawdown_duration())
-
-    # Get full summary
-    print("\nPerformance Summary:")
-    summary = port_metrics.summary(risk_free_rate=0.02)  # 2% risk-free rate
-    print(summary)

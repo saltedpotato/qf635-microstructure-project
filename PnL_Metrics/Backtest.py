@@ -1,8 +1,9 @@
 from Utils.import_files import *
 import matplotlib.pyplot as plt
+from Strats.WeightAllocation import *
 
 class Backtest:
-    def __init__(self, df, tickers, weights, test_start_date, stoploss=0.1, drawdown_duration=100):
+    def __init__(self, df, tickers, test_start_date, test_end_date, stoploss=0.1, drawdown_duration=100):
         '''
         Initialize the backtesting class with necessary parameters.
         
@@ -16,10 +17,12 @@ class Backtest:
         '''
         self.df = df
         self.test_start_date = test_start_date
+        self.test_end_date = test_end_date
         self.tickers = tickers
-        self.weights = weights
+        self.weights = np.array([1/len(tickers) for i in tickers]) #equal weighting first
         self.stoploss = stoploss
         self.drawdown_duration = drawdown_duration
+        
 
     def backtest(self, ticker):
         '''
@@ -32,7 +35,7 @@ class Backtest:
             DataFrame: Contains PnL metrics and position information
         '''
         # Filter trades from the start date and reset index
-        trades = self.df[self.df['timestamp'] >= self.test_start_date].copy().reset_index(drop=True)
+        trades = self.df[(self.df['timestamp'] <= self.test_end_date) & (self.df['timestamp'] >= self.test_start_date)].copy().reset_index(drop=True)
         
         # Initialize PnL tracking variables
         position = 0  # Current position (positive for long, negative for short)
@@ -52,25 +55,32 @@ class Backtest:
         pnlRealized_list = []  # Track realized PnL
         daily_pnl = []  # Daily PnL (realized + unrealized)
         daily_pnl_pct = []  # Daily PnL percentage change
-        
+
+        peak = 0
+        peak_ind = len(trades)
+
         # Process each trade in sequence
         for i in range(0, len(trades)):
             # Get current trade information
             qty = trades[ticker+'_signal'][i]  # Signal quantity (positive for buy, negative for sell)
             price = trades[ticker][i]  # Current price
             exit_signal = trades[ticker+'_exit_signal'][i]  # Exit signal (1 = exit)
-            
+
+            if (pnlUnrealized + pnlRealized) > peak:
+                peak = pnlUnrealized + pnlRealized
+                peak_ind = i
+                
             # Check exit conditions (three possible exit triggers)
             if exit_signal == 1:  # Exit signal triggered
                 if position != 0:
                     qty = -position  # Close entire position
-            elif len(daily_pnl_pct) > 0 and daily_pnl_pct[-1] < -self.stoploss:  # Stop-loss hit
+            elif (len(daily_pnl_pct) > 0) and (daily_pnl_pct[-1] < -self.stoploss):  # Stop-loss hit
                 if position != 0:
                     qty = -position  # Close entire position
-            elif len(daily_pnl_pct) >= self.drawdown_duration and \
-                 (np.array(daily_pnl_pct[-self.drawdown_duration:]) <= 0).sum() == self.drawdown_duration:  # Drawdown duration exceeded
+            elif (i - peak_ind) >= self.drawdown_duration:  # Drawdown duration exceeded
                 if position != 0:
                     qty = -position  # Close entire position
+                    peak_ind = len(trades)
             
             # Update position averages based on trade direction
             if qty < 0:  # Short position
@@ -127,12 +137,27 @@ class Backtest:
         pnl_df["Realized_PnL"] = pnlRealized_list
         pnl_df["Unrealized_PnL"] = pnlUnrealized_list
         pnl_df["Daily_PnL"] = daily_pnl
-        pnl_df["Daily_PnL_Pct"] = daily_pnl_pct
         pnl_df["PnL_Total"] = pnl_df["Realized_PnL"] + pnl_df["Unrealized_PnL"]
         
         return pnl_df
     
-    def computePortfolioPnL(self):
+    def get_weights(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
+        weights = [np.array([1/len(self.tickers) for i in self.tickers])] * rolling
+        for i in range(0, len(self.df)-rolling, rolling):
+            window = self.df[i:i+rolling]
+            pair_backtest_temp = Backtest(window.copy(), tickers = self.tickers, test_start_date=window['timestamp'].head(1).item(), test_end_date=window['timestamp'].tail(1).item(), stoploss=0.1, drawdown_duration=100)
+            returns_temp = pair_backtest_temp.get_ticker_returns(notional = 10e6)
+            weights_temp = weight_method(returns_temp, allow_short=allow_short).values
+            if np.isnan(weights_temp[0]):
+                if len(weights) == 0:
+                    weights_temp = np.array([1/len(self.tickers) for i in self.tickers])
+                else:
+                    weights_temp = weights[-1]
+            weights += [weights_temp] * len(spread[i+rolling:i+rolling*2])
+
+        return weights
+    
+    def computePortfolioPnL(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
         '''
         Computes the portfolio-level PnL by aggregating individual asset PnLs using their weights.
         
@@ -143,38 +168,35 @@ class Backtest:
         Returns:
             DataFrame: Contains timestamp and portfolio-level PnL metrics including:
                 - total_daily_pnl: Weighted sum of daily PnL across all assets
-                - total_daily_pnl_pct: Weighted sum of daily PnL percentages
                 - total_pnl: Weighted sum of cumulative PnL
         '''
         # Initialize empty DataFrame to store portfolio results
         portfolioPnL = pd.DataFrame()
+        weights = self.get_weights(rolling, weight_method, allow_short)
+        weights_df = pd.DataFrame(weights, columns=self.tickers)
         
         # Loop through each ticker in the portfolio
         for ind, t in enumerate(self.tickers):
-            # Backtest the individual ticker
             pnl_df = self.backtest(t)
             
             # Store individual asset metrics
             portfolioPnL[t+"_daily_pnl"] = pnl_df["Daily_PnL"]
-            portfolioPnL[t+"_daily_pnl_pct"] = pnl_df["Daily_PnL_Pct"]
             
             # Calculate weighted portfolio metrics
             if ind > 0:
                 # For subsequent assets, add weighted contribution to existing totals
-                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
-                portfolioPnL["total_daily_pnl_pct"] = portfolioPnL["total_daily_pnl_pct"] + portfolioPnL[t+"_daily_pnl_pct"] * self.weights[ind]
-                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * self.weights[ind]
+                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * weights_df[t][:len(portfolioPnL)]
+                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * weights_df[t][:len(portfolioPnL)]
             else:
                 # For first asset, initialize totals with weighted values
-                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * self.weights[ind]
-                portfolioPnL["total_daily_pnl_pct"] = portfolioPnL[t+"_daily_pnl_pct"] * self.weights[ind]
-                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * self.weights[ind]
+                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * weights_df[t][:len(portfolioPnL)]
+                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * weights_df[t][:len(portfolioPnL)]
         
         # Add timestamp from the last backtested asset (all should have same dates)
         portfolioPnL["timestamp"] = pnl_df["timestamp"]
         
         # Select and return only the portfolio-level metrics
-        portfolioPnL = portfolioPnL[["timestamp", "total_daily_pnl", "total_daily_pnl_pct", "total_pnl"]]
+        portfolioPnL = portfolioPnL[["timestamp", "total_daily_pnl", "total_pnl"]]
         
         return portfolioPnL
 
@@ -194,17 +216,17 @@ class Backtest:
         # Plot each asset's PnL in separate subplot
         for i, t in enumerate(self.tickers):
             # Backtest the asset
-            pnl_df = self.backtest(t, self.test_start_date)
+            pnl_df = self.backtest(t)
             
             # Plot cumulative PnL
-            axs[i].plot(pnl_df["Date"], pnl_df["PnL_Total"], label=f"{t}_PnL_Total")
+            axs[i].plot(pnl_df["timestamp"], pnl_df["PnL_Total"], label=f"{t}_PnL_Total")
             axs[i].set_ylabel("Accumulated PnL")
             axs[i].set_xlabel("timestamp")
             axs[i].legend()
             axs[i].grid(True)
         
         # Calculate and plot portfolio PnL in bottom subplot
-        total_pnl_df = self.computePortfolioPnL(self.test_start_date)
+        total_pnl_df = self.computePortfolioPnL()
         axs[len(self.tickers)].plot(total_pnl_df["timestamp"], total_pnl_df["total_pnl"], label="Portfolio")
         axs[len(self.tickers)].set_ylabel("Accumulated PnL")
         axs[len(self.tickers)].set_xlabel("timestamp")
@@ -213,3 +235,27 @@ class Backtest:
         
         # Display the complete figure
         plt.show()
+
+    def get_ticker_returns(self, notional = 10e6):
+        grp_returns = pd.DataFrame()
+        for t in self.tickers:
+            pnl = self.backtest(t)['PnL_Total']
+            pnl_diff = np.diff(pnl)
+            grp_returns[t+'_returns'] = pnl_diff / notional
+
+        return grp_returns
+    
+    def get_window_ticker_returns(self, notional = 10e6):
+        grp_returns = pd.DataFrame()
+        for t in self.tickers:
+            pnl = self.backtest(t)['PnL_Total']
+            pnl_diff = np.diff(pnl)
+            grp_returns[t+'_returns'] = pnl_diff / notional
+
+        return grp_returns
+    
+    def get_returns(self, notional = 10e6):
+        pnl_df = self.computePortfolioPnL()
+        pnl_diff = np.diff(pnl_df['total_pnl'])
+        returns = pnl_diff / notional
+        return returns

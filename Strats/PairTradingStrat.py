@@ -93,10 +93,9 @@ def hurst_exponent(ts: pd.Series, max_lags: int = 50) -> float:
 
 
 class pair_trading:
-    def __init__(self, df, weights):
+    def __init__(self, df):
         self.df = df
         self.tickers = df.columns.tolist()[1:]
-        self.weights = weights
 
 
     def generate_signals(self, lookback, execute_threshold, close_threshold):
@@ -115,45 +114,11 @@ class pair_trading:
             self.df[t+'_is_mean_revert'] = [0] * (len(self.df) - len(is_mean_revert)) + is_mean_revert
             self.df[t+"_is_mean_revert"] = self.df[t+"_is_mean_revert"].fillna(0)
 
-            self.df[t+'_signal'] = np.where((self.df[t+'_z_scores'] > execute_threshold) | (self.df[t+'_z_scores'] < -execute_threshold), 1, 0)
+            self.df[t+'_signal'] = np.where(self.df[t+'_z_scores'] < -execute_threshold, 1, 0)
+            self.df[t+'_signal'] = np.where(self.df[t+'_z_scores'] > execute_threshold, -1, self.df[t+'_signal'])
             self.df[t+'_signal'] = np.where(self.df[t+'_is_mean_revert'] != 1, 0, self.df[t+'_signal'])
         
 
-            self.df[t+'_exit_signal'] = np.where((self.df[t+'_z_scores'] > -close_threshold) & (self.df[t+'_z_scores'] < close_threshold), 1, 0)
-            self.df[t+'_exit_signal'] = np.where(self.df[t+'_exit_signal'] != 1, 1, self.df[t+'_exit_signal'])
+            self.df[t+'_exit_signal'] = np.where(((self.df[t+'_z_scores'] > -close_threshold) & (self.df[t+'_z_scores'] < close_threshold)), 1, 0)
 
         return self.df
-
-
-# Example Usage
-if __name__ == "__main__":
-    # Get all available tickers
-    response = requests.get(f"{BASE_URL}/ticker/price")
-    data = response.json()
-    BTC_pairs = [i["symbol"] for i in data if "BTC" in i["symbol"]]
-    coint_pairs = get_coint_pairs(BTC_pairs, interval='1d', start_date="2023-01-01", end_date="2023-12-31")
-
-    test_pair = coint_pairs[10]
-
-    symbol_manager = BinanceSymbolManager()
-    # Add symbols
-    print(symbol_manager.add_symbol(test_pair))  # Success
-
-    price_fetcher = BinancePriceFetcher(symbol_manager.get_symbols())
-    # Fetch pair historical price
-    pair_portfolio = price_fetcher.get_grp_historical_ohlcv(
-        interval="1d",
-        start_date="2023-01-01",
-        end_date="2024-12-31"
-    )
-
-
-    model = pair_trading(pair_portfolio.copy())
-    spread = model.generate_signals(lookback=10, threshold=1.5)
-    pnl_df = model.computePnL(test_start_date="2024-01-01")
-
-    returns = pnl_df[("Daily_PnL")]
-
-    port_metrics = PortfolioMetrics(returns.dropna())
-    summary = port_metrics.summary(risk_free_rate=0.02)  # 2% risk-free rate
-    print(summary)
