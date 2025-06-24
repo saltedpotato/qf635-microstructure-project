@@ -147,15 +147,16 @@ class Backtest:
             window = self.df[i:i+rolling]
             pair_backtest_temp = Backtest(window.copy(), tickers = self.tickers, test_start_date=window['timestamp'].head(1).item(), test_end_date=window['timestamp'].tail(1).item(), stoploss=0.1, drawdown_duration=100)
             returns_temp = pair_backtest_temp.get_ticker_returns(notional = 10e6)
-            weights_temp = weight_method(returns_temp, allow_short=allow_short).values
+            weights_temp = weight_method(returns_temp, allow_short=allow_short)
             if np.isnan(weights_temp[0]):
                 if len(weights) == 0:
                     weights_temp = np.array([1/len(self.tickers) for i in self.tickers])
                 else:
                     weights_temp = weights[-1]
-            weights += [weights_temp] * len(spread[i+rolling:i+rolling*2])
-
-        return weights
+            weights += [weights_temp] * len(self.df[i+rolling:i+rolling*2])
+        weights_df = pd.DataFrame(weights, columns=self.tickers)[:len(self.df)]
+        weights_df['timestamp'] = self.df['timestamp']
+        return weights_df
     
     def computePortfolioPnL(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
         '''
@@ -172,9 +173,8 @@ class Backtest:
         '''
         # Initialize empty DataFrame to store portfolio results
         portfolioPnL = pd.DataFrame()
-        weights = self.get_weights(rolling, weight_method, allow_short)
-        weights_df = pd.DataFrame(weights, columns=self.tickers)
-        
+        weights_df = self.get_weights(rolling, weight_method, allow_short)
+        weights_df = weights_df[(weights_df['timestamp'] <= self.test_end_date) & (weights_df['timestamp'] >= self.test_start_date)].copy().reset_index(drop=True)
         # Loop through each ticker in the portfolio
         for ind, t in enumerate(self.tickers):
             pnl_df = self.backtest(t)
@@ -185,12 +185,12 @@ class Backtest:
             # Calculate weighted portfolio metrics
             if ind > 0:
                 # For subsequent assets, add weighted contribution to existing totals
-                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * weights_df[t][:len(portfolioPnL)]
-                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * weights_df[t][:len(portfolioPnL)]
+                portfolioPnL["total_daily_pnl"] = portfolioPnL["total_daily_pnl"] + portfolioPnL[t+"_daily_pnl"] * weights_df[t]
+                portfolioPnL["total_pnl"] = portfolioPnL["total_pnl"] + pnl_df["PnL_Total"] * weights_df[t]
             else:
                 # For first asset, initialize totals with weighted values
-                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * weights_df[t][:len(portfolioPnL)]
-                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * weights_df[t][:len(portfolioPnL)]
+                portfolioPnL["total_daily_pnl"] = portfolioPnL[t+"_daily_pnl"] * weights_df[t]
+                portfolioPnL["total_pnl"] = pnl_df["PnL_Total"] * weights_df[t]
         
         # Add timestamp from the last backtested asset (all should have same dates)
         portfolioPnL["timestamp"] = pnl_df["timestamp"]
@@ -200,7 +200,7 @@ class Backtest:
         
         return portfolioPnL
 
-    def plot_pnl(self):
+    def plot_pnl(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
         '''
         Visualizes the PnL performance of individual assets and the overall portfolio.
         
@@ -226,7 +226,7 @@ class Backtest:
             axs[i].grid(True)
         
         # Calculate and plot portfolio PnL in bottom subplot
-        total_pnl_df = self.computePortfolioPnL()
+        total_pnl_df = self.computePortfolioPnL(rolling, weight_method, allow_short)
         axs[len(self.tickers)].plot(total_pnl_df["timestamp"], total_pnl_df["total_pnl"], label="Portfolio")
         axs[len(self.tickers)].set_ylabel("Accumulated PnL")
         axs[len(self.tickers)].set_xlabel("timestamp")
@@ -245,17 +245,8 @@ class Backtest:
 
         return grp_returns
     
-    def get_window_ticker_returns(self, notional = 10e6):
-        grp_returns = pd.DataFrame()
-        for t in self.tickers:
-            pnl = self.backtest(t)['PnL_Total']
-            pnl_diff = np.diff(pnl)
-            grp_returns[t+'_returns'] = pnl_diff / notional
-
-        return grp_returns
-    
-    def get_returns(self, notional = 10e6):
-        pnl_df = self.computePortfolioPnL()
+    def get_returns(self, notional = 10e6, rolling=1000, weight_method=inverse_volatility_weighting, allow_short=True):
+        pnl_df = self.computePortfolioPnL(rolling, weight_method, allow_short)
         pnl_diff = np.diff(pnl_df['total_pnl'])
         returns = pnl_diff / notional
         return returns

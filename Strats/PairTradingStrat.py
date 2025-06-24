@@ -2,6 +2,7 @@ from statsmodels.tsa.stattools import adfuller
 from Data.BinancePriceFetcher import *
 import matplotlib.pyplot as plt
 from PnL_Metrics.PortfolioMetrics import *
+from Utils.Hurst import *
 
 import sys
 import threading
@@ -68,30 +69,6 @@ def get_coint_pairs(tickers, interval = '1d', start_date="2023-01-01", end_date=
     #     pickle.dump(coint_pairs, f)
     return coint_pairs
 
-def hurst_exponent(ts: pd.Series, max_lags: int = 50) -> float:
-    """
-    Calculate the Hurst Exponent of a time series.
-        
-    Args:
-        time_series (pd.Series): Input time series (e.g., stock prices, spreads).
-        max_lags (int): Maximum number of lags to compute rescaled range (R/S).
-        
-    Returns:
-        float: Hurst Exponent value.
-    """
-    # Create the range of lag values
-    lags = range(2, 100)
-
-    # Calculate the array of the variances of the lagged differences
-    tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
-
-    # Use a linear fit to estimate the Hurst Exponent
-    poly = np.polyfit(np.log(lags), np.log(tau), 1)
-
-    # Return the Hurst exponent from the polyfit output
-    return poly[0]*2.0
-
-
 class pair_trading:
     def __init__(self, df):
         self.df = df
@@ -106,7 +83,7 @@ class pair_trading:
             self.df[t+'_z_scores'] = (self.df[t] - self.df[t+'_rolling_mean']) / self.df[t+'_rolling_std']
             is_mean_revert = []
             for i in range(lookback, len(self.df)):
-                if hurst_exponent(self.df[t][i-lookback:i].values) < 0.5:
+                if hurst_exponent(self.df[t][i-lookback:i].values) <= 0.3:
                     is_mean_revert += [1]
                 else:
                     is_mean_revert += [0]

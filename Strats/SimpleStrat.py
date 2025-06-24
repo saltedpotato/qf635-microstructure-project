@@ -1,6 +1,6 @@
 from Utils.import_files import *
 
-class MomentumStrat:
+class SimpleStrat:
     def __init__(self, data):
         """
         Initialize the portfolio strategy.
@@ -12,14 +12,14 @@ class MomentumStrat:
         - end_date (str): End date in 'YYYY-MM-DD' format.
         """
         self.tickers = data.columns.tolist()[1:]
-        self.data = data
+        self.df = data
         self.df_train = data[self.tickers]
 
-    def momentum_strategy(self, lookback=20, hold_period=5):
+    def simple_strategy(self, lookback=100, hold_period=30):
         """
         Simple momentum strategy:
-        - Rank stocks by past `lookback`-day returns.
-        - Invest in top-performing stocks for `hold_period` days.
+        - Rank stocks by past `lookback`-period returns.
+        - Invest in top-performing stocks for `hold_period` periods.
 
         Returns:
         - tuple: (strategy_df, weights_array) where:
@@ -28,53 +28,38 @@ class MomentumStrat:
         """
         # Calculate returns and momentum
         returns = self.df_train.pct_change().dropna()
-        momentum = self.df_train.pct_change(lookback).dropna()
+        signals = [np.array([0 for i in self.tickers])] * lookback
+        exit_signals = [np.array([0 for i in self.tickers])] * (lookback+hold_period-1)
+        for i in range(lookback, len(returns) + 1, hold_period):
+            lookback_df = returns[i-lookback:i].dropna()
 
-        # Align the indices
-        valid_dates = returns.index.intersection(momentum.index)
-        returns = returns.loc[valid_dates]
-        momentum = momentum.loc[valid_dates]
+            # Rank stocks by sharpe and select top half
+            if len(self.tickers) > 1:
+                topn_tickers = (lookback_df.mean() / lookback_df.std()).nlargest(len(self.tickers) // 2).index.tolist()
+                bottomn_tickers = (lookback_df.mean() / lookback_df.std()).nlargest(len(self.tickers) // 2, keep='last').index.tolist()
 
-        # Initialize output DataFrames and arrays
-        signal_df = pd.DataFrame(index=returns.index, columns=self.tickers)
-        exit_signal_df = pd.DataFrame(index=returns.index, columns=self.tickers)
+            signal_temp = []
+            signal_exit_temp = []
+            for t in self.tickers:
+                if t in topn_tickers:
+                    signal_temp += [1]
+                elif t in bottomn_tickers:
+                    signal_temp += [-1]
+                else:
+                    signal_temp += [0]
+                
+                if (i-lookback) % hold_period == 0:
+                    signal_exit_temp += [1]
+                         
+            signals += [np.array(signal_temp)] + [np.array([0 for i in self.tickers])] * (hold_period - 1)
+            exit_signals += [np.array(signal_exit_temp)] + [np.array([0 for i in self.tickers])] * (hold_period - 1)
         
-        # Ensure we have enough data
-        if len(returns) <= lookback:
-            raise ValueError("Not enough data points for the given lookback period")
+        signals_df = pd.DataFrame(signals, columns=[f"{t}_signal" for t in self.tickers])[:len(self.df)]
+        signals_df['timestamp'] = self.df['timestamp']
+        self.df = pd.merge(self.df, signals_df, on=['timestamp'])
 
-        for i in range(lookback, len(returns) - hold_period + 1, hold_period):
-            try:
-                # Rank stocks by momentum and select top half
-                current_momentum = momentum.iloc[i]
-                top_stocks = current_momentum.nlargest(len(self.tickers) // 2).index.tolist()
+        signals_exit_df = pd.DataFrame(exit_signals, columns=[f"{t}_exit_signal" for t in self.tickers])[:len(self.df)]
+        signals_exit_df['timestamp'] = self.df['timestamp']
+        self.df = pd.merge(self.df, signals_exit_df, on=['timestamp'])
 
-                # Generate signals
-                for j in range(hold_period):
-                    current_idx = i + j
-                    if current_idx >= len(returns):
-                        break
-                    
-                    # Entry signal (1 for buy at start of period)
-                    if j == 0:
-                        signal_df.iloc[current_idx] = [1 if ticker in top_stocks else 0 for ticker in self.tickers]
-                    else:
-                        signal_df.iloc[current_idx] = 0
-                    
-                    # Exit signal (1 for sell at end of period)
-                    if j == (hold_period - 1):
-                        exit_signal_df.iloc[current_idx] = [1 if ticker in top_stocks else 0 for ticker in self.tickers]
-                    else:
-                        exit_signal_df.iloc[current_idx] = 0
-
-            except IndexError:
-                # Handle cases where we reach the end of the data
-                break
-        
-        # Combine all data into output DataFrame
-        strategy_df = self.data[["timestamp"] + self.tickers]
-        for ticker in self.tickers:
-            strategy_df[ticker+'_signal'] = signal_df[ticker].fillna(0)
-            strategy_df[ticker+'_exit_signal'] = exit_signal_df[ticker].fillna(0)    
-        
-        return strategy_df
+        return self.df
