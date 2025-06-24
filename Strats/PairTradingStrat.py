@@ -83,7 +83,7 @@ class pair_trading:
             self.df[t+'_z_scores'] = (self.df[t] - self.df[t+'_rolling_mean']) / self.df[t+'_rolling_std']
             is_mean_revert = []
             for i in range(lookback, len(self.df)):
-                if hurst_exponent(self.df[t][i-lookback:i].values) <= 0.3:
+                if hurst_exponent(self.df[t][i-lookback:i].values) < 0.5:
                     is_mean_revert += [1]
                 else:
                     is_mean_revert += [0]
