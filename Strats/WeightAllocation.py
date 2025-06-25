@@ -89,13 +89,15 @@ def hierarchical_risk_parity_weighting(returns, allow_short=True):
     cov = returns.cov()
     corr = returns.corr()
 
-    dist = np.sqrt(0.5 * (1 - corr))
-    dist_array = squareform(dist.values, checks=False)
-
-    linkage_matrix = linkage(dist_array, method='ward')
-    ordered_linkage_matrix = optimal_leaf_ordering(linkage_matrix, dist_array)
-    sorted_indices = leaves_list(ordered_linkage_matrix)
-    sorted_assets = corr.index[sorted_indices].tolist()
+    try:
+        dist = np.sqrt(0.5 * (1 - corr))
+        dist_array = squareform(dist.values, checks=False)
+        linkage_matrix = linkage(dist_array, method='ward')
+        ordered_linkage_matrix = optimal_leaf_ordering(linkage_matrix, dist_array)
+        sorted_indices = leaves_list(ordered_linkage_matrix)
+        sorted_assets = corr.index[sorted_indices].tolist()
+    except ValueError as e:
+        return equal_weighting(returns, allow_short)
 
     cov_sorted = cov.loc[sorted_assets, sorted_assets]
 
@@ -169,20 +171,4 @@ def hierarchical_risk_parity_weighting(returns, allow_short=True):
         weights /= weights.sum()
 
     return weights.values
-
-class PortfolioAllocator:
-    def __init__(self, returns):
-        self.returns = returns
-        self.cov_matrix = returns.cov()
-        self.expected_returns = returns.mean()
-        
-    def allocate(self, method='inverse_vol', allow_short=True, **kwargs):
-        if method == 'inverse_vol':
-            return inverse_volatility_weighting(self.returns, allow_short=allow_short)
-        elif method == 'mean_var':
-            return mean_variance_optimization(self.returns, allow_short=allow_short, **kwargs)
-        elif method == 'equal':
-            return equal_weighting(self.returns, allow_short=allow_short)
-        else:
-            raise ValueError(f"Unknown method: {method}")
         

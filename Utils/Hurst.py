@@ -21,3 +21,8 @@ def hurst_exponent(ts: pd.Series, max_lags: int = 50) -> float:
 
     # Return the Hurst exponent from the polyfit output
     return poly[0]*2.0
+
+class Hurst_Type:
+    mean_revert = [0, 0.5] # true if hurst result < mean_revert
+    gbm = [0.45, 0.55] # true if hurst result around 0.5
+    trend = [0.85, 1] # true if hurst result > 0.85
