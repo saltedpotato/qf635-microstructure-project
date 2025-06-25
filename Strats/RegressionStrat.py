@@ -11,6 +11,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from Utils.Hurst import *
+from Utils.config import *
+from statsmodels.tsa.stattools import adfuller
 
 class RegressionStrat:
     """
@@ -54,7 +56,7 @@ class RegressionStrat:
 
         # Create lagged features
         df_preprocessed = pd.DataFrame()
-        for lag in range(1, self.lookback_window):
+        for lag in range(1, self.lookback_window, 1000):
             df_preprocessed[f'lag_{lag}'] = returns.shift(lag)
         
         df_preprocessed['rolling_vol'] = returns.rolling(window=self.lookback_window).std().shift(1)
@@ -65,6 +67,25 @@ class RegressionStrat:
         X, y = df_preprocessed.drop(columns=[t]), df_preprocessed[t]
         
         return X, y
+    
+    def _get_test_features(self, t):
+        """Create feature matrix (lags) and target vector (future returns)"""
+        
+        returns = self.df[t].pct_change()
+
+        # Create lagged features
+        df_preprocessed = pd.DataFrame()
+        for lag in range(0, self.lookback_window, 1000):
+            df_preprocessed[f'lag_{lag+1}'] = returns.shift(lag)
+        
+        df_preprocessed['rolling_vol'] = returns.rolling(window=self.lookback_window).std()
+        
+        df_preprocessed[t] = returns
+        # Align and drop NA
+        df_preprocessed = df_preprocessed.dropna().reset_index(drop=True)
+        X, y = df_preprocessed.drop(columns=[t]), df_preprocessed[t]
+        
+        return X
     
     
     def _get_model(self):
@@ -92,30 +113,89 @@ class RegressionStrat:
         
         for t in self.tickers:
             X, y = self._get_features_targets(t)
-            signal = [0] * self.lookback_window
+            preds = [0] * self.lookback_window
             is_trend = [0] * self.lookback_window
-            for i in range(self.lookback_window, len(self.df)):
+            exit_signals = [0] * self.lookback_window
+            for i in tqdm(range(self.lookback_window, len(self.df)-self.lookback_window, self.lookback_window)):
                 X_temp, y_temp = X[i-self.lookback_window: i], y[i-self.lookback_window: i]
-                pipeline.fit(X_temp, y_temp)
+                refit = False
+                try:
+                    pipeline.fit(X_temp, y_temp)
+                    refit = True
+                except:
+                    pred_price = pipeline.predict(X[i:i+self.lookback_window])
+                    
+                pred_price = pipeline.predict(X[i:i+self.lookback_window])
+                preds += list(pred_price)
 
-                pred_price = pipeline.predict(X[:i+1])[-1]
-                
-                if pred_price > threshold:
-                    signal += [1]
-                elif pred_price < -threshold:
-                    signal += [-1]
+                if refit:
+                    exit_signals += [1] * (self.lookback_window - 1)
                 else:
-                    signal += [0]
+                    exit_signals += [0] * (self.lookback_window)
 
-            for i in range(self.lookback_window, len(self.df)):
-                if hurst_exponent(self.df[t][i-self.lookback_window:i].values) > 0.7:
-                    is_trend += [1]
+                if hurst_exponent(self.df[t][i-self.lookback_window:i].values) > Hurst_Type.trend[0]:
+                    is_trend += [1] * self.lookback_window
                 else:
-                    is_trend += [0]
+                    is_trend += [0] * self.lookback_window
             
-            self.df[t+'_signal'] = signal[:len(self.df)]
-            self.df[t+'_exit_signal'] = is_trend[:len(self.df)]
+            if len(preds) < len(self.df):
+                pred_price = pipeline.predict(X[-(len(self.df)-len(preds)):])
+                preds += list(pred_price)
+
+                exit_signals += [0] * (len(self.df)-len(exit_signals))
+
+                if hurst_exponent(self.df[t][-(len(self.df)-len(is_trend)):].values) > Hurst_Type.trend[0]:
+                    is_trend += [1] * (len(self.df)-len(is_trend))
+                else:
+                    is_trend += [0] * (len(self.df)-len(is_trend))
+
+            preds = np.array(preds)[:len(self.df)]
+            try:
+                self.df[t+'_pred'] = preds
+                self.df[t+'_is_trend'] = is_trend
+                self.df[t+'_signal'] = np.where(self.df[t+'_pred'] < -threshold, -1, 0)
+                self.df[t+'_signal'] = np.where(self.df[t+'_pred'] > threshold, 1, self.df[t+'_signal'])
+                self.df[t+'_signal'] = np.where(self.df[t+'_is_trend'] != 1, 0, self.df[t+'_signal'])
+                self.df[t+'_exit_signal'] = exit_signals
+            except:
+                return is_trend, self.df
 
         return self.df
 
-    
+    def generate_single_signal(self, t, prices, pca_components=3, execute_threshold=1):
+        pipeline = Pipeline([('scaler', StandardScaler()),
+                             ('PCA', PCA(n_components=min(pca_components, self.lookback_window))),
+                             ('model', self._get_model())])
+        
+        signal_df = pd.DataFrame()
+        signal_df['Tickers'] = [t]
+
+        bid, mid, ask = prices[0], prices[1], prices[2]
+        price = mid
+
+        X, y = self._get_features_targets(t)
+        X_test = self._get_test_features(t)
+        pipeline.fit(X, y)
+        pred = pipeline.predict(X_test)[-1]
+
+        is_trend = False
+        if adfuller(self.df[t].values)[1] > 0.05:
+            is_trend = True
+
+        signal = 0
+        exit_signal = 0
+        if pred < -execute_threshold:
+            signal = -1
+            price = bid
+        elif pred > execute_threshold:
+            signal = 1
+            price = ask
+
+        if not is_trend:
+            exit_signal = 1
+
+
+        signal_df['signals'] = [signal]
+        signal_df['exit_signals'] = [exit_signal]
+        signal_df['Price'] = price
+        return signal_df
