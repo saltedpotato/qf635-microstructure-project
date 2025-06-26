@@ -12,7 +12,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from Utils.Hurst import *
 from Utils.config import *
-from statsmodels.tsa.stattools import adfuller
 
 class RegressionStrat:
     """

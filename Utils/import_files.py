@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
+from statsmodels.tsa.stattools import adfuller
 
 logging.basicConfig(format='%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s', level=logging.INFO)
 BASE_URL = "https://api.binance.com/api/v3"

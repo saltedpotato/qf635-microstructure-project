@@ -22,6 +22,9 @@ class MeanReversionStrat_PARAMS:
     lookback = 8640
     stationarity_cutoff = 0.1
 
+class TrendStrat_PARAMS:
+    stationarity_cutoff = 0.1
+
 class RegressionStrat_PARAMS:
     lookback_window=8000
     regression_type='huber'
