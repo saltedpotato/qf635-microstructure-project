@@ -105,7 +105,7 @@ class RegressionStrat:
             
         return position_size
     
-    def generate_signals(self, pca_components=3, threshold=1):
+    def generate_signals(self, pca_components=3, threshold=1, r2_exit=0.7):
         pipeline = Pipeline([('scaler', StandardScaler()),
                              ('PCA', PCA(n_components=min(pca_components, self.lookback_window))),
                              ('model', self._get_model())])
@@ -113,55 +113,43 @@ class RegressionStrat:
         for t in self.tickers:
             X, y = self._get_features_targets(t)
             preds = [0] * self.lookback_window
-            is_trend = [0] * self.lookback_window
-            exit_signals = [0] * self.lookback_window
+            exit_signal = [0] * self.lookback_window
             for i in tqdm(range(self.lookback_window, len(self.df)-self.lookback_window, self.lookback_window)):
                 X_temp, y_temp = X[i-self.lookback_window: i], y[i-self.lookback_window: i]
-                refit = False
                 try:
                     pipeline.fit(X_temp, y_temp)
-                    refit = True
+                    r2 = r2_score(y_temp, pipeline.predict(X_temp))
                 except:
                     pred_price = pipeline.predict(X[i:i+self.lookback_window])
                     
                 pred_price = pipeline.predict(X[i:i+self.lookback_window])
                 preds += list(pred_price)
 
-                if refit:
-                    exit_signals += [1] * (self.lookback_window - 1)
+                if r2 < r2_exit:
+                    exit_signal += [1] * self.lookback_window
                 else:
-                    exit_signals += [0] * (self.lookback_window)
-
-                if adfuller(self.df[t][i-self.lookback_window:i].values) > 0.05:
-                    is_trend += [1] * self.lookback_window
-                else:
-                    is_trend += [0] * self.lookback_window
+                    exit_signal += [0] * self.lookback_window
             
             if len(preds) < len(self.df):
                 pred_price = pipeline.predict(X[-(len(self.df)-len(preds)):])
                 preds += list(pred_price)
 
-                exit_signals += [0] * (len(self.df)-len(exit_signals))
-
-                if adfuller(self.df[t][-(len(self.df)-len(is_trend)):].values) > 0.05:
-                    is_trend += [1] * (len(self.df)-len(is_trend))
+                if r2 < r2_exit:
+                    exit_signal += [1] * (len(self.df)-len(exit_signal))
                 else:
-                    is_trend += [0] * (len(self.df)-len(is_trend))
+                    exit_signal += [0] * (len(self.df)-len(exit_signal))
 
             preds = np.array(preds)[:len(self.df)]
-            try:
-                self.df[t+'_pred'] = preds
-                self.df[t+'_is_trend'] = is_trend
-                self.df[t+'_signal'] = np.where(self.df[t+'_pred'] < -threshold, -1, 0)
-                self.df[t+'_signal'] = np.where(self.df[t+'_pred'] > threshold, 1, self.df[t+'_signal'])
-                self.df[t+'_signal'] = np.where(self.df[t+'_is_trend'] != 1, 0, self.df[t+'_signal'])
-                self.df[t+'_exit_signal'] = exit_signals
-            except:
-                return is_trend, self.df
+            self.df[t+'_pred'] = preds
+            self.df[t+'_is_trend'] = exit_signal
+            self.df[t+'_signal'] = np.where(self.df[t+'_pred'] < -threshold, -1, 0)
+            self.df[t+'_signal'] = np.where(self.df[t+'_pred'] > threshold, 1, self.df[t+'_signal'])
+            self.df[t+'_signal'] = np.where(self.df[t+'_is_trend'] != 1, 0, self.df[t+'_signal'])
+            self.df[t+'_exit_signal'] = exit_signal
 
         return self.df
 
-    def generate_single_signal(self, t, prices, pca_components=3, execute_threshold=1):
+    def generate_single_signal(self, t, prices, pca_components=3, execute_threshold=1, r2_exit=0.7):
         pipeline = Pipeline([('scaler', StandardScaler()),
                              ('PCA', PCA(n_components=min(pca_components, self.lookback_window))),
                              ('model', self._get_model())])
@@ -175,10 +163,11 @@ class RegressionStrat:
         X, y = self._get_features_targets(t)
         X_test = self._get_test_features(t)
         pipeline.fit(X, y)
+        r2 = r2_score(y, pipeline.predict(X))
         pred = pipeline.predict(X_test)[-1]
 
         is_trend = False
-        if adfuller(self.df[t].values)[1] > 0.05:
+        if r2 < r2_exit:
             is_trend = True
 
         signal = 0

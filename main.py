@@ -33,7 +33,7 @@ portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
         end_date=now.strftime('%Y-%m-%d')
     )
 
-def get_signal(prices):
+def get_signal(prices, portfolio_prices):
     signals = pd.DataFrame()
     mr_model = MeanReversionStrat(portfolio_prices[-MeanReversionStrat_PARAMS.lookback:].copy(), passed_tickers)
     lr_model = RegressionStrat(portfolio_prices[-RegressionStrat_PARAMS.lookback_window-10:].copy(), passed_tickers, 
@@ -51,7 +51,10 @@ def get_signal(prices):
             
         elif huber_result > Hurst_Type.trend[0]:
             # Regression or smth else
-            signal = lr_model.generate_single_signal(t, prices[ind], pca_components=RegressionStrat_PARAMS.pca_components, execute_threshold=RegressionStrat_PARAMS.execute_threshold)
+            signal = lr_model.generate_single_signal(t, prices[ind], 
+                                                     pca_components=RegressionStrat_PARAMS.pca_components, 
+                                                     execute_threshold=RegressionStrat_PARAMS.execute_threshold, 
+                                                     r2_exit=RegressionStrat_PARAMS.r2_exit)
         else:
             signal = pd.DataFrame([[t, 0, 0, prices[ind][1]]], columns = ['Tickers', 'signals', 'exit_signals', 'Price'])
         
@@ -71,11 +74,20 @@ while True:
             # Print current state
             order_book = order_book_manager.fetch_order_book(t, limit = 5)
             prices += [[order_book.best_bid(), order_book.get_mid_price(), order_book.best_ask()]]
-        signals = get_signal(prices)
+        signals = get_signal(prices, portfolio_prices)
         print(signals)
+        
+        #portfolio price scrape time start
+        portfolio_prices_start = time.perf_counter()
+        portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
+                interval=interval,
+                start_date=start_date,
+                end_date=now.strftime('%Y-%m-%d')
+            )
+        portfolio_prices_end = time.perf_counter()
 
         # Sleep to maintain ~frequency interval 
-        time.sleep(interval_seconds)
+        time.sleep(interval_seconds - (portfolio_prices_end-portfolio_prices_start))
 
     except KeyboardInterrupt:
         logging.info("Stopping order book monitor...")

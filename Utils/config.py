@@ -25,8 +25,17 @@ class MeanReversionStrat_PARAMS:
 class TrendStrat_PARAMS:
     stationarity_cutoff = 0.1
 
+
 class RegressionStrat_PARAMS:
     lookback_window=8000
-    regression_type='huber'
+    regression_type='theilsen'
     pca_components=3
     execute_threshold=0
+    stationarity_cutoff = 0.05
+
+
+class RSI_PARAMS:
+    rsi_period=14
+    stoch_period=14
+    k_smooth=3
+    d_smooth=3
