@@ -2,6 +2,7 @@ from Data.BinancePriceFetcher import *  # Module for fetching Binance price data
 from PnL_Metrics.PortfolioMetrics import *  # Module for portfolio performance metrics
 from Utils.Hurst import *  # Module for Hurst exponent calculations
 from Utils.config import *  # Configuration parameters
+from PnL_Metrics.Backtest import *
 
 class MeanReversionStrat:
     def __init__(self, df, tickers):
@@ -37,7 +38,7 @@ class MeanReversionStrat:
             # Check for mean reversion property using Augmented Dickey-Fuller test
             is_mean_revert = []
             counter = 0
-            for i in tqdm(range(lookback, len(self.df))):
+            for i in range(lookback, len(self.df)):
                 if counter == lookback:
                     # Perform ADF test on lookback window
                     if adfuller(self.df[t][i-lookback:i].values)[1] < MeanReversionStrat_PARAMS.stationarity_cutoff:
@@ -73,7 +74,7 @@ class MeanReversionStrat:
 
         return self.df
     
-    def generate_single_signal(self, t, prices, execute_threshold, close_threshold):
+    def generate_single_signal(self, t, prices, lookback, execute_threshold, close_threshold):
         """
         Generate trading signal for a single ticker at current prices.
         
@@ -86,43 +87,27 @@ class MeanReversionStrat:
         Returns:
             pd.DataFrame: DataFrame with signal, exit signal, and execution price
         """
+        signals = self.generate_signals(lookback, execute_threshold, close_threshold)
+        signal, exit_signal = signals.tail(1)[t+"_signal"].item(), signals.tail(1)[t+"_exit_signal"].item()
+        bid, mid, ask = prices[0], prices[1], prices[2]
+
         signal_df = pd.DataFrame()
         signal_df['Tickers'] = [t]
-        
-        # Calculate current statistics
-        rolling_mean = self.df[t].mean()
-        rolling_std = self.df[t].std()
-        bid, mid, ask = prices[0], prices[1], prices[2]
-        price = mid  # Default to mid price if no trade
-        
-        # Calculate current z-score
-        z_score = (mid - rolling_mean) / rolling_std
 
-        # Check if series is mean-reverting using ADF test
-        is_mean_revert = False
-        if adfuller(self.df[t].values)[1] < MeanReversionStrat_PARAMS.stationarity_cutoff:  # 95% confidence level
-            is_mean_revert = True
+        if signal == -1:
+            price = bid
+        elif signal == 1:
+            price = ask
+        else:
+            price = mid
+        
+        backtest = Backtest(signals.copy(), tickers = self.tickers, test_start_date=start_date, test_end_date=end_date, stoploss=stoploss, drawdown_duration=drawdown_duration)
+        weights = backtest.get_weights(rolling, weight_method, short).tail(1)
 
-        # Determine trade signal
-        signal = 0  # Default: no signal
-        exit_signal = 0  # Default: don't exit
-        
-        # Long signal condition
-        if z_score < -execute_threshold and is_mean_revert:
-            signal = 1
-            price = ask  # Buy at ask price
-            
-        # Short signal condition    
-        elif z_score > execute_threshold and is_mean_revert:
-            signal = -1
-            price = bid  # Sell at bid price
-            
-        # Exit signal condition
-        if ((z_score > -close_threshold) & (z_score < close_threshold)):
-            exit_signal = 1
-        
         # Store results
         signal_df['signals'] = [signal]
+        signal_df['weights'] = [weights[t].item()]
         signal_df['exit_signals'] = [exit_signal]
         signal_df['Price'] = price
         return signal_df
+    

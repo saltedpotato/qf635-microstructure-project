@@ -158,7 +158,7 @@ class BinancePriceFetcher:
         current_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        start_time = time.time()
+        counter = 0
         while current_date < end_date:
             # Binance has 1000 data point limit per request
             data = self.get_klines(
@@ -168,6 +168,14 @@ class BinancePriceFetcher:
                 limit=1000
             )
 
+            if counter == 0:
+                prev_data = data
+            else:
+                if prev_data['timestamp'].tail(1).item() == data['timestamp'].tail(1).item():
+                    break
+                else:
+                    prev_data = data
+
             if data.empty:
                 break
 
@@ -175,11 +183,11 @@ class BinancePriceFetcher:
             current_date = data['timestamp'].iloc[-1] + timedelta(milliseconds=1)
             time.sleep(0.1)  # Rate limit
 
-        if all_data:
-            final = pd.concat(all_data).drop_duplicates().reset_index(drop=True)
-            final = final[final['timestamp']<= end_date]
-            return final
-        return pd.DataFrame()
+            counter += 1
+
+        final = pd.concat(all_data).drop_duplicates().reset_index(drop=True)
+        final = final[final['timestamp']<= end_date]
+        return final
 
     def get_grp_historical_ohlcv(self, interval: str, start_date: str, end_date: str = None, col: str = "close") -> pd.DataFrame:
         """

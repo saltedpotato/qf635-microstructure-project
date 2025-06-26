@@ -16,8 +16,6 @@ print(f"Train start date: {start_date}")
 print(f"Trading Frequency: {interval}")
 
 
-now = datetime.today()
-
 symbol_manager = BinanceSymbolManager()
 # Add symbols
 for t in tickers:
@@ -25,13 +23,6 @@ for t in tickers:
 
 passed_tickers = symbol_manager.get_symbols()
 price_fetcher = BinancePriceFetcher(passed_tickers)
-
-# Fetch pair historical price up till latest point in time
-portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
-        interval=interval,
-        start_date=start_date,
-        end_date=now.strftime('%Y-%m-%d')
-    )
 
 def get_signal(prices, portfolio_prices):
     signals = pd.DataFrame()
@@ -50,10 +41,10 @@ def get_signal(prices, portfolio_prices):
         if huber_result < Hurst_Type.mean_revert[-1]:
             # mean-revert
             mr_signal = mr_signals['mr'].generate_single_signal(
-                t, prices[ind], 
+                t, prices[ind], lookback=MeanReversionStrat_PARAMS.lookback,
                 execute_threshold=MeanReversionStrat_PARAMS.execute_threshold, 
                 close_threshold=MeanReversionStrat_PARAMS.close_threshold)
-            
+
             rsi_signal = mr_signals['rsi'].generate_single_signal(
                 t, prices[ind], 
                 rsi_period=RSI_PARAMS.rsi_period, stoch_period=RSI_PARAMS.stoch_period, 
@@ -62,11 +53,14 @@ def get_signal(prices, portfolio_prices):
             voted_signal = (mr_signal['signals'].item() + rsi_signal['signals'].item()) / len(mr_signals)
             voted_signal = 1 if voted_signal > 0.5 else 0
 
+            voted_weights = (mr_signal['weights'].item() + rsi_signal['weights'].item()) / len(mr_signals)
+
             voted_exit_signal = (mr_signal['exit_signals'].item() + rsi_signal['exit_signals'].item()) / len(mr_signals)
             voted_exit_signal = 1 if voted_exit_signal > 0.5 else 0
 
             signal = mr_signal.copy()
             signal['signals'] = voted_signal
+            signal['weights'] = voted_weights
             signal['exit_signals'] = voted_exit_signal
             
         else:
@@ -79,10 +73,20 @@ def get_signal(prices, portfolio_prices):
         signals = pd.concat([signals, signal])
     signals['timestamp'] = datetime.now()
     
-    signals = signals[['timestamp', 'Tickers', 'signals', 'exit_signals', "Price"]]
+    signals = signals[['timestamp', 'Tickers', 'signals', 'weights', 'exit_signals', "Price"]]
+    weights_sum = signals['weights'].sum()
+    signals['weights'] = [i/weights_sum for i in signals['weights']]
     return signals
 
 order_book_manager = OrderBookManager(passed_tickers)
+
+# Fetch pair historical price up till latest point in time
+portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date
+    )
+
 # Main loop
 while True:
     try:
@@ -96,11 +100,12 @@ while True:
         print(signals)
         
         #portfolio price scrape time start
+        start_date_iter = (datetime.now() - timedelta(days=max(rolling, MeanReversionStrat_PARAMS.lookback, RegressionStrat_PARAMS.lookback_window)//(interval_mins * 24) + 2)).strftime('%Y-%m-%d')
         portfolio_prices_start = time.perf_counter()
         portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
                 interval=interval,
                 start_date=start_date,
-                end_date=now.strftime('%Y-%m-%d')
+                end_date=datetime.now().strftime('%Y-%m-%d')
             )
         portfolio_prices_end = time.perf_counter()
 

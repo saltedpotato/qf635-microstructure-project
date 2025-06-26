@@ -1,4 +1,5 @@
 from Utils.config import *
+from PnL_Metrics.Backtest import *
 
 class RSI:
     def __init__(self, df, tickers):
@@ -37,8 +38,11 @@ class RSI:
             oversold_k = self.df[t+'_%K'] < 10
             overbought_k = self.df[t+'_%K'] > 80
 
-            buy_signal = bullish_crossover | oversold_k
-            sell_signal = bearish_crossover | overbought_k
+            rsi_buy_condition = self.df[t+'_RSI'] < 10
+            rsi_sell_condition = self.df[t+'_RSI'] >= 90
+
+            buy_signal = bullish_crossover | oversold_k | rsi_buy_condition
+            sell_signal = bearish_crossover | overbought_k | rsi_sell_condition
 
              # --- Signal Generation ---
             self.df[t+'_pseudo_signal'] = 0
@@ -71,9 +75,13 @@ class RSI:
             price = ask
         else:
             price = mid
-            
+        
+        backtest = Backtest(signals.copy(), tickers = self.tickers, test_start_date=start_date, test_end_date=end_date, stoploss=stoploss, drawdown_duration=drawdown_duration)
+        weights = backtest.get_weights(rolling, weight_method, short).tail(1)
+
         # Store results
         signal_df['signals'] = [signal]
+        signal_df['weights'] = [weights[t].item()]
         signal_df['exit_signals'] = [exit_signal]
         signal_df['Price'] = price
         return signal_df

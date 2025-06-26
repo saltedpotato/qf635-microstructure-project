@@ -12,6 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from Utils.Hurst import *
 from Utils.config import *
+from PnL_Metrics.Backtest import *
 
 class RegressionStrat:
     """
@@ -114,7 +115,7 @@ class RegressionStrat:
             X, y = self._get_features_targets(t)
             preds = [0] * self.lookback_window
             exit_signal = [0] * self.lookback_window
-            for i in tqdm(range(self.lookback_window, len(self.df)-self.lookback_window, self.lookback_window)):
+            for i in range(self.lookback_window, len(self.df)-self.lookback_window, self.lookback_window):
                 X_temp, y_temp = X[i-self.lookback_window: i], y[i-self.lookback_window: i]
                 try:
                     pipeline.fit(X_temp, y_temp)
@@ -182,8 +183,13 @@ class RegressionStrat:
         if not is_trend:
             exit_signal = 1
 
+        signals = self.generate_signals(pca_components, execute_threshold, r2_exit)
+        backtest = Backtest(signals.copy(), tickers = self.tickers, test_start_date=start_date, test_end_date=end_date, stoploss=stoploss, drawdown_duration=drawdown_duration)
+        weights = backtest.get_weights(rolling, weight_method, short).tail(1)
 
+        # Store results
         signal_df['signals'] = [signal]
+        signal_df['weights'] = [weights[t].item()]
         signal_df['exit_signals'] = [exit_signal]
         signal_df['Price'] = price
         return signal_df
