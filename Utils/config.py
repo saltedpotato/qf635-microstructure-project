@@ -1,8 +1,8 @@
 from Strats.WeightAllocation import *
 
 tickers = ['BTCUSDT', 'ETHUSDT']
-stoploss = 0.05
-drawdown_duration = 2880
+stoploss = 10e6 # don't activate for now
+drawdown_duration = 10e6 # don't activate for now
 rolling=1000
 weight_method=hierarchical_risk_parity_weighting
 short = False

@@ -96,6 +96,7 @@ class MeanReversionStrat:
                 counter += 1
                     
             self.df[t+'_is_mean_revert'] = [0] * (len(self.df) - len(is_mean_revert)) + is_mean_revert
+            
             self.df[t+"_is_mean_revert"] = self.df[t+"_is_mean_revert"].fillna(0)
 
             self.df[t+'_signal'] = np.where(self.df[t+'_z_scores'] < -execute_threshold, 1, 0)
@@ -136,7 +137,6 @@ class MeanReversionStrat:
         if ((z_score > -close_threshold) & (z_score < close_threshold)):
             exit_signal = 1
         
-        print(signal_df)
         signal_df['signals'] = [signal]
         signal_df['exit_signals'] = [exit_signal]
         signal_df['Price'] = price

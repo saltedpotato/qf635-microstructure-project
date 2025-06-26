@@ -133,7 +133,7 @@ class RegressionStrat:
                 else:
                     exit_signals += [0] * (self.lookback_window)
 
-                if hurst_exponent(self.df[t][i-self.lookback_window:i].values) > Hurst_Type.trend[0]:
+                if adfuller(self.df[t][i-self.lookback_window:i].values) > 0.05:
                     is_trend += [1] * self.lookback_window
                 else:
                     is_trend += [0] * self.lookback_window
@@ -144,7 +144,7 @@ class RegressionStrat:
 
                 exit_signals += [0] * (len(self.df)-len(exit_signals))
 
-                if hurst_exponent(self.df[t][-(len(self.df)-len(is_trend)):].values) > Hurst_Type.trend[0]:
+                if adfuller(self.df[t][-(len(self.df)-len(is_trend)):].values) > 0.05:
                     is_trend += [1] * (len(self.df)-len(is_trend))
                 else:
                     is_trend += [0] * (len(self.df)-len(is_trend))

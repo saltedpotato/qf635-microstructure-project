@@ -144,7 +144,7 @@ class Backtest:
     def get_weights(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
         weights = [np.array([1/len(self.tickers) for i in self.tickers])] * rolling
         for i in range(0, len(self.df)-rolling, rolling):
-            window = self.df[i:i+rolling]
+            window = self.df[:i+rolling]
             pair_backtest_temp = Backtest(window.copy(), tickers = self.tickers, test_start_date=window['timestamp'].head(1).item(), test_end_date=window['timestamp'].tail(1).item(), stoploss=0.1, drawdown_duration=100)
             returns_temp = pair_backtest_temp.get_ticker_returns(notional = 10e6)
             weights_temp = weight_method(returns_temp, allow_short=allow_short)
@@ -178,7 +178,7 @@ class Backtest:
         # Loop through each ticker in the portfolio
         for ind, t in enumerate(self.tickers):
             pnl_df = self.backtest(t)
-            
+        
             # Store individual asset metrics
             portfolioPnL[t+"_daily_pnl"] = pnl_df["Daily_PnL"]
             
@@ -200,7 +200,7 @@ class Backtest:
         
         return portfolioPnL
 
-    def plot_pnl(self, rolling=5000, weight_method = inverse_volatility_weighting, allow_short=True):
+    def plot_pnl(self, total_pnl_df):
         '''
         Visualizes the PnL performance of individual assets and the overall portfolio.
         
@@ -226,7 +226,6 @@ class Backtest:
             axs[i].grid(True)
         
         # Calculate and plot portfolio PnL in bottom subplot
-        total_pnl_df = self.computePortfolioPnL(rolling, weight_method, allow_short)
         axs[len(self.tickers)].plot(total_pnl_df["timestamp"], total_pnl_df["total_pnl"], label="Portfolio")
         axs[len(self.tickers)].set_ylabel("Accumulated PnL")
         axs[len(self.tickers)].set_xlabel("timestamp")
@@ -245,8 +244,8 @@ class Backtest:
 
         return grp_returns
     
-    def get_returns(self, notional = 10e6, rolling=1000, weight_method=inverse_volatility_weighting, allow_short=True):
-        pnl_df = self.computePortfolioPnL(rolling, weight_method, allow_short)
-        pnl_diff = np.diff(pnl_df['total_pnl'])
+    def get_returns(self, pnl_df, notional = 10e6):
+        pnl_filtered = pnl_df[pnl_df['total_pnl'] != 0]['total_pnl']
+        pnl_diff = np.diff(pnl_filtered)
         returns = pnl_diff / notional
         return returns
