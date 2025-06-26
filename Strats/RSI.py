@@ -55,3 +55,25 @@ class RSI:
             self.df[t+'_exit_signal'] = 0
             
         return self.df
+    
+    def generate_single_signal(self, t, prices, rsi_period=14, stoch_period=14, k_smooth=3, d_smooth=3):
+
+        signals = self.generate_signals(rsi_period, stoch_period, k_smooth, d_smooth)
+        signal, exit_signal = signals.tail(1)[t+"_signal"].item(), signals.tail(1)[t+"_exit_signal"].item()
+        bid, mid, ask = prices[0], prices[1], prices[2]
+
+        signal_df = pd.DataFrame()
+        signal_df['Tickers'] = [t]
+
+        if signal == -1:
+            price = bid
+        elif signal == 1:
+            price = ask
+        else:
+            price = mid
+            
+        # Store results
+        signal_df['signals'] = [signal]
+        signal_df['exit_signals'] = [exit_signal]
+        signal_df['Price'] = price
+        return signal_df

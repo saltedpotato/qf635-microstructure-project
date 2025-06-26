@@ -1,6 +1,6 @@
 from Strats.WeightAllocation import *
 
-tickers = ['BTCUSDT', 'ETHUSDT']
+tickers = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']
 stoploss = 10e6 # don't activate for now
 drawdown_duration = 10e6 # don't activate for now
 rolling=1000
@@ -12,8 +12,7 @@ interval_seconds = 5*60
 
 class Hurst_Type:
     mean_revert = [0, 0.5] # true if hurst result < mean_revert
-    gbm = [0.45, 0.55] # true if hurst result around 0.5
-    trend = [0.85, 1] # true if hurst result > 0.85
+    momentum = [0.5, 1] # true if hurst result > 0.5
 
 
 class MeanReversionStrat_PARAMS:
@@ -32,6 +31,7 @@ class RegressionStrat_PARAMS:
     pca_components=3
     execute_threshold=0
     stationarity_cutoff = 0.05
+    r2_exit=0.7
 
 
 class RSI_PARAMS:
