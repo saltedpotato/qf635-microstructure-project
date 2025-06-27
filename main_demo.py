@@ -76,49 +76,21 @@ last_signal_time = 0
 def get_signal(prices, portfolio_prices):
     signals = pd.DataFrame()
 
-    mr_signals = {
-        'mr': MeanReversionStrat(portfolio_prices[-MeanReversionStrat_PARAMS.lookback:].copy(), passed_tickers),
-        'rsi': RSI(portfolio_prices[-RegressionStrat_PARAMS.lookback_window - 10:].copy(), passed_tickers)
-    }
-
-    trend_signals = {
-        'lr': RegressionStrat(
-            portfolio_prices[-RegressionStrat_PARAMS.lookback_window - 10:].copy(), passed_tickers,
-            lookback_window=RegressionStrat_PARAMS.lookback_window,
-            regression_type=RegressionStrat_PARAMS.regression_type)
-    }
-
     for ind, t in enumerate(passed_tickers):
-        huber_result = hurst_exponent(portfolio_prices[t].values[-rolling:])
-        if huber_result < Hurst_Type.mean_revert[-1]:
-            mr_signal = mr_signals['mr'].generate_single_signal(
-                t, prices[ind],
-                lookback=MeanReversionStrat_PARAMS.lookback,
-                execute_threshold=MeanReversionStrat_PARAMS.execute_threshold,
-                close_threshold=MeanReversionStrat_PARAMS.close_threshold)
-
-            rsi_signal = mr_signals['rsi'].generate_single_signal(
-                t, prices[ind],
-                rsi_period=RSI_PARAMS.rsi_period,
-                stoch_period=RSI_PARAMS.stoch_period,
-                k_smooth=RSI_PARAMS.k_smooth,
-                d_smooth=RSI_PARAMS.d_smooth)
-
-            signal = mr_signal.copy()
-            signal['signals'] = int((mr_signal['signals'].item() + rsi_signal['signals'].item()) / 2)
-            signal['exit_signals'] = int((mr_signal['exit_signals'].item() + rsi_signal['exit_signals'].item()) / 2)
-            signal['weights'] = (mr_signal['weights'].item() + rsi_signal['weights'].item()) / 2
-        else:
-            signal = trend_signals['lr'].generate_single_signal(
-                t, prices[ind],
-                pca_components=RegressionStrat_PARAMS.pca_components,
-                execute_threshold=RegressionStrat_PARAMS.execute_threshold,
-                r2_exit=RegressionStrat_PARAMS.r2_exit)
-
+        mid_price = prices[ind][1]  # prices[ind] = [bid, mid, ask]
+        
+        # Dummy BUY signal
+        signal = pd.DataFrame([{
+            'timestamp': datetime.now(),
+            'Tickers': t,
+            'signals': 1,         # Force BUY
+            'weights': 1.0,       # Equal weight for simplicity
+            'exit_signals': 0,    # No exit
+            'Price': mid_price
+        }])
         signals = pd.concat([signals, signal])
 
-    signals['timestamp'] = datetime.now()
-    signals = signals[['timestamp', 'Tickers', 'signals', 'weights', 'exit_signals', 'Price']]
+    # Normalize weights
     weight_sum = signals['weights'].sum()
     signals['weights'] = signals['weights'] / weight_sum if weight_sum > 0 else 0
     return signals

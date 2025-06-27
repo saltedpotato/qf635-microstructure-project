@@ -1,3 +1,5 @@
+from datetime import timezone
+from pathlib import Path
 from Data.BinanceSymbolManager import *
 
 class BinancePriceFetcher:
@@ -152,42 +154,34 @@ class BinancePriceFetcher:
             Concatenated DataFrame with all historical data
         """
         if end_date is None:
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
         all_data = []
         current_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        counter = 0
         while current_date < end_date:
+            print(current_date)
             # Binance has 1000 data point limit per request
             data = self.get_klines(
                 symbol=symbol,
                 interval=interval,
-                start_time=current_date.strftime('%Y-%m-%d'),
-                limit=1000
+                start_time=current_date.strftime('%Y-%m-%d %H:%M:%S'),
+                limit=1000,
             )
 
-            if counter == 0:
-                prev_data = data
-            else:
-                if prev_data['timestamp'].tail(1).item() == data['timestamp'].tail(1).item():
-                    break
-                else:
-                    prev_data = data
-
-            if data.empty:
+            if data.empty or data['timestamp'].iloc[-1] == current_date:
                 break
 
             all_data.append(data)
-            current_date = data['timestamp'].iloc[-1] + timedelta(milliseconds=1)
+            current_date = data['timestamp'].iloc[-1]
             time.sleep(0.1)  # Rate limit
 
-            counter += 1
-
-        final = pd.concat(all_data).drop_duplicates().reset_index(drop=True)
-        final = final[final['timestamp']<= end_date]
-        return final
+        if all_data:
+            final = pd.concat(all_data).drop_duplicates().reset_index(drop=True)
+            final = final[final['timestamp']<= end_date]
+            return final
+        return pd.DataFrame()
 
     def get_grp_historical_ohlcv(self, interval: str, start_date: str, end_date: str = None, col: str = "close") -> pd.DataFrame:
         """
@@ -201,15 +195,37 @@ class BinancePriceFetcher:
         Returns:
             Concatenated DataFrame with all historical data
         """
-        compiled_symbol_df = pd.DataFrame()
+        if Path("./portfolio_prices.csv").exists():
+            compiled_symbol_df = pd.read_csv("./portfolio_prices.csv", parse_dates=["timestamp"])
+            last_ts = compiled_symbol_df["timestamp"].max()
+            next_ts = last_ts + pd.Timedelta(minutes=5)
+        else:
+            compiled_symbol_df = pd.DataFrame()
+            next_ts = pd.to_datetime(start_date).strftime('%Y-%m-%d %H:%M:%S')
+
+        df_new = pd.DataFrame()
         for s in self.symbols:
-            symbol_df = self.get_historical_ohlcv(s, interval, start_date, end_date)
+            symbol_df = self.get_historical_ohlcv(s, interval, next_ts, end_date)
+
+            if symbol_df.empty:
+                break
+
             symbol_df = symbol_df[["timestamp", col]].copy()
             symbol_df = symbol_df.rename(columns={col:s})
-            if len(compiled_symbol_df) == 0:
-                compiled_symbol_df = symbol_df
+
+            if len(df_new) == 0:
+                df_new = symbol_df
             else:
-                compiled_symbol_df = compiled_symbol_df.merge(symbol_df, on="timestamp", how="left")
+                df_new = df_new.merge(symbol_df, on="timestamp", how="left")
+
+        if df_new.empty:
+            return compiled_symbol_df
+
+        if compiled_symbol_df.empty:
+            compiled_symbol_df = df_new
+        else:
+            compiled_symbol_df.merge(df_new)
+
         return compiled_symbol_df
 
 
