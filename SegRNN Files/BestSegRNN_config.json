@@ -1,0 +1,11 @@
+{
+  "model_path": "BestSegRNN.pth",
+  "scaler_path": "BestSegRNN_scaler.pkl",
+  "threshold": 0.38999999999999996,
+  "model_params": {
+    "input_dim": 53,
+    "hidden_dim": 64,
+    "num_layers": 1,
+    "dropout": 0.42303687128201356
+  }
+}

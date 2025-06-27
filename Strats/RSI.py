@@ -1,5 +1,7 @@
 from Utils.config import *
 from PnL_Metrics.Backtest import *
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 class RSI:
     def __init__(self, df, tickers):
