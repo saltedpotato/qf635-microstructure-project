@@ -9,9 +9,7 @@ import threading
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-from Data.BinancePriceFetcher import *
 from Data.GetOrderBook import *
-from Utils.config import *
 from Strats.MeanReversionStrat import *
 from Strats.RegressionStrat import *
 from Strats.RSI import *
@@ -20,16 +18,15 @@ from Strats.RSI import *
 app = Flask(__name__)
 CORS(app, resources={r"/signals": {"origins": "*"}})
 _latest_signals = None
-_lock = threading.Lock()
+_latest_json = []
 
 @app.route("/signals")
 def signals_endpoint():
-    with _lock:
-        if _latest_signals is None or _latest_signals.empty:
-            return jsonify([])
-        return jsonify(_latest_signals.to_dict(orient="records"))
+    return jsonify(_latest_json or {"summary": {}, "signals": []})
 
 def _run_flask():
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
     app.run(host="0.0.0.0", port=8888, threaded=False, debug=False)
 
 threading.Thread(target=_run_flask, daemon=True).start()
@@ -138,8 +135,7 @@ while True:
         now = time.time()
         if now - last_signal_time >= signal_refresh_interval:
             signals = get_signal(live_prices, portfolio_prices)
-            with _lock:
-                _latest_signals = signals.copy()
+            _latest_signals = signals.copy()
             last_signal_time = now
 
         # === Update capital, position, and realised PnL ===
@@ -187,7 +183,7 @@ while True:
         )
         portfolio_value = capital + position_value
 
-
+        signals_json = []
         print("\n====== LIVE TRADING VIEW ======")
         print(f"Portfolio Value : ${portfolio_value:,.2f}")
         print(f"Realised PnL    : ${realised_pnl:,.2f}")
@@ -201,18 +197,54 @@ while True:
             exit_sig = int(row['exit_signals'])
             sig_label = 'BUY' if sig == 1 else ('SELL' if sig == -1 else 'HOLD')
             qty = 0.0
+            # if sig == 1:
+            #     qty = (row['weights'] * capital_per_round) / row['Price']
+            #     print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+            # elif sig == -1 and current_position[s] > 0:
+            #     qty = min(current_position[s], (row['weights'] * capital_per_round) / row['Price'])
+            #     print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+            # elif exit_sig == 1:
+            #     qty = current_position[s]
+            #     print(f"{s} SIGNAL: EXIT {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+            # else:
+            #     print(f"{s} SIGNAL: HOLD @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+            mid_price = next((p[1] for i, p in enumerate(live_prices) if passed_tickers[i] == s), None)
+
             if sig == 1:
                 qty = (row['weights'] * capital_per_round) / row['Price']
-                print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+                print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {mid_price:.2f} | Current Position: {current_position[s]:.2f}")
             elif sig == -1 and current_position[s] > 0:
                 qty = min(current_position[s], (row['weights'] * capital_per_round) / row['Price'])
-                print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+                print(f"{s} SIGNAL: {sig_label} {qty:.4f} Qty @ {mid_price:.2f} | Current Position: {current_position[s]:.2f}")
             elif exit_sig == 1:
                 qty = current_position[s]
-                print(f"{s} SIGNAL: EXIT {qty:.4f} Qty @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+                print(f"{s} SIGNAL: EXIT {qty:.4f} Qty @ {mid_price:.2f} | Current Position: {current_position[s]:.2f}")
             else:
-                print(f"{s} SIGNAL: HOLD @ {row['Price']:.2f} | Current Position: {current_position[s]:.2f}")
+                print(f"{s} SIGNAL: HOLD @ {mid_price:.2f} | Current Position: {current_position[s]:.2f}")
+            
+            signals_json.append(
+                {
+                    "ticker": s,
+                    "signal": sig_label,
+                    "exit_signal": exit_sig,
+                    "price": round(mid_price, 2),
+                    "current_position": current_position[s],
+                    "qty": qty
+                }
+            )
         print("==============================\n")
+
+        summary = {
+            "portfolio_value": portfolio_value,
+            "realised_pnl": realised_pnl,
+            "unrealised_pnl": unrealised_pnl,
+            "capital": capital,
+        }
+
+        _latest_json = {
+            "summary": summary,
+            "signals": signals_json,
+        }
 
         portfolio_prices_start = time.perf_counter()
         portfolio_prices = price_fetcher.get_grp_historical_ohlcv(
