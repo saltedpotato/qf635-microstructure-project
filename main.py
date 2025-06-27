@@ -101,10 +101,25 @@ def get_signal(prices, portfolio_prices):
                 k_smooth=RSI_PARAMS.k_smooth,
                 d_smooth=RSI_PARAMS.d_smooth)
 
+            voted_signal = (mr_signal['signals'].item() + rsi_signal['signals'].item()) / len(mr_signals)
+            if voted_signal <= -0.5:
+                voted_signal = -1
+            elif voted_signal >= 0.5:
+                voted_signal = 1
+            else:
+                voted_signal = 0
+
+            voted_weights = (mr_signal['weights'].item() + rsi_signal['weights'].item()) / len(mr_signals)
+
+            voted_exit_signal = (mr_signal['exit_signals'].item() + rsi_signal['exit_signals'].item()) / len(mr_signals)
+            voted_exit_signal = 1 if voted_exit_signal > 0.5 else 0
+
             signal = mr_signal.copy()
-            signal['signals'] = int((mr_signal['signals'].item() + rsi_signal['signals'].item()) / 2)
-            signal['exit_signals'] = int((mr_signal['exit_signals'].item() + rsi_signal['exit_signals'].item()) / 2)
-            signal['weights'] = (mr_signal['weights'].item() + rsi_signal['weights'].item()) / 2
+            signal['signals'] = voted_signal
+            signal['weights'] = voted_weights
+            signal['exit_signals'] = voted_exit_signal
+
+
         else:
             signal = trend_signals['lr'].generate_single_signal(
                 t, prices[ind],
