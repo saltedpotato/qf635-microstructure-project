@@ -4,26 +4,6 @@ from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, leaves_list, optimal_leaf_ordering
 from scipy.spatial.distance import squareform
 
-def sharpe_weighting(returns, allow_short=True):
-    """
-    Allocate weights proportional to asset sharpe
-    Allows for short positions when allow_short=True
-    """
-    sharpe = returns.mean() / returns.std()
-    weights = sharpe / sharpe.sum() * np.sqrt(252*12*24)
-
-    if allow_short:
-        # Allow weights to range between -1 and 1
-        weights = weights * 2 - weights.sum()/len(weights)
-        weights = weights / np.abs(weights).sum()  # Ensure sum of absolute weights = 1
-    
-    if len(weights[np.isnan(weights)]) == len(weights):
-        return equal_weighting(returns)
-    
-    weights[np.isnan(weights)] = 0
-    
-    return weights.values
-
 def inverse_volatility_weighting(returns, allow_short=True):
     """
     Allocate weights inversely proportional to asset volatility
